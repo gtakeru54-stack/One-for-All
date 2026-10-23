@@ -1,21 +1,322 @@
-PERSONAL PLANNER
-カレンダー & タスク
-＋ 予定を追加
-‹
-2026年10月
-今日に戻る
-›
-日月火水木金土
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#f6f7fb">
 
-予定あり タスク期限あり
-SELECTED DAY
-今日の予定
-＋
+  <title>カレンダー＆タスク</title>
 
-TO DO
-やることリスト
-＋
-追加
+  <!-- CSS：カレンダーのデザイン -->
+  <link rel="stylesheet" href="./css/style.css">
+</head>
 
-このブラウザ内に保存されます。 データを書き出す 読み込む
+<body>
+  <div class="app-shell">
 
+    <!-- ヘッダー -->
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">PERSONAL PLANNER</p>
+        <h1>カレンダー <span>&amp; タスク</span></h1>
+      </div>
+
+      <button id="add-event-top" class="primary-button">
+        ＋ 予定を追加
+      </button>
+    </header>
+
+    <main class="layout">
+
+      <!-- 月間カレンダー -->
+      <section class="panel calendar-panel">
+        <div class="calendar-heading">
+          <button id="prev-month" class="icon-button" aria-label="前の月">
+            ‹
+          </button>
+
+          <div>
+            <h2 id="month-title">カレンダーを読み込み中...</h2>
+            <button id="today-button" class="text-button">
+              今日に戻る
+            </button>
+          </div>
+
+          <button id="next-month" class="icon-button" aria-label="翌月">
+            ›
+          </button>
+        </div>
+
+        <div class="weekdays" aria-hidden="true">
+          <span>日</span>
+          <span>月</span>
+          <span>火</span>
+          <span>水</span>
+          <span>木</span>
+          <span>金</span>
+          <span>土</span>
+        </div>
+
+        <div
+          id="calendar-grid"
+          class="calendar-grid"
+          aria-label="月間カレンダー">
+        </div>
+
+        <div class="legend">
+          <span class="dot event-dot"></span>
+          予定あり
+          <span class="dot task-dot"></span>
+          タスク期限あり
+        </div>
+      </section>
+
+      <!-- 右側：選択日の予定とタスク -->
+      <aside class="side-column">
+
+        <!-- 選択日の予定 -->
+        <section class="panel day-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">SELECTED DAY</p>
+              <h2 id="selected-date-title">今日の予定</h2>
+            </div>
+
+            <button
+              id="add-event-day"
+              class="small-add"
+              aria-label="選択日の予定を追加">
+              ＋
+            </button>
+          </div>
+
+          <div id="day-items" class="item-list"></div>
+        </section>
+
+        <!-- やることリスト -->
+        <section class="panel tasks-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">TO DO</p>
+              <h2>やることリスト</h2>
+            </div>
+
+            <button
+              id="add-task-button"
+              class="small-add"
+              aria-label="タスクを追加">
+              ＋
+            </button>
+          </div>
+
+          <form id="quick-task-form" class="quick-task-form">
+            <input
+              id="quick-task-title"
+              type="text"
+              maxlength="120"
+              placeholder="やることを入力..."
+              aria-label="やること">
+
+            <button type="submit">追加</button>
+          </form>
+
+          <div id="task-list" class="task-list"></div>
+        </section>
+
+      </aside>
+    </main>
+
+    <!-- バックアップ -->
+    <footer>
+      <span>このブラウザ内に保存されます。</span>
+
+      <button id="export-button" class="text-button">
+        データを書き出す
+      </button>
+
+      <label class="text-button import-label">
+        読み込む
+        <input
+          id="import-file"
+          type="file"
+          accept="application/json">
+      </label>
+    </footer>
+  </div>
+
+  <!-- 予定の追加・編集ダイアログ -->
+  <dialog id="event-dialog" class="editor-dialog">
+    <form id="event-form">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">EVENT</p>
+          <h2 id="event-dialog-title">予定を追加</h2>
+        </div>
+
+        <button
+          type="button"
+          class="icon-button close-dialog"
+          aria-label="閉じる">
+          ×
+        </button>
+      </div>
+
+      <input id="event-id" type="hidden">
+
+      <label>
+        予定名
+        <input
+          id="event-title"
+          type="text"
+          required
+          maxlength="120"
+          placeholder="例：部活、課題提出">
+      </label>
+
+      <div class="form-row">
+        <label>
+          日付
+          <input id="event-date" type="date" required>
+        </label>
+
+        <label>
+          開始時刻
+          <input id="event-start" type="time">
+        </label>
+      </div>
+
+      <div class="form-row">
+        <label>
+          終了時刻
+          <input id="event-end" type="time">
+        </label>
+
+        <label>
+          色
+          <select id="event-color">
+            <option value="blue">ブルー</option>
+            <option value="purple">パープル</option>
+            <option value="green">グリーン</option>
+            <option value="orange">オレンジ</option>
+            <option value="pink">ピンク</option>
+          </select>
+        </label>
+      </div>
+
+      <label>
+        詳細
+        <textarea
+          id="event-notes"
+          rows="3"
+          maxlength="1000"
+          placeholder="場所や持ち物など">
+        </textarea>
+      </label>
+
+      <label class="check-row">
+        <input id="event-reminder" type="checkbox">
+        通知を設定する
+      </label>
+
+      <p class="hint">
+        通知はページを開いている間に動作します。
+        ブラウザ通知には許可が必要です。
+      </p>
+
+      <div class="dialog-actions">
+        <button
+          id="delete-event"
+          type="button"
+          class="danger-button hidden">
+          削除
+        </button>
+
+        <span class="action-spacer"></span>
+
+        <button
+          type="button"
+          class="secondary-button close-dialog">
+          キャンセル
+        </button>
+
+        <button type="submit" class="primary-button">
+          保存する
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- タスクの追加・編集ダイアログ -->
+  <dialog id="task-dialog" class="editor-dialog">
+    <form id="task-form">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">TASK</p>
+          <h2 id="task-dialog-title">タスクを追加</h2>
+        </div>
+
+        <button
+          type="button"
+          class="icon-button close-dialog"
+          aria-label="閉じる">
+          ×
+        </button>
+      </div>
+
+      <input id="task-id" type="hidden">
+
+      <label>
+        タスク名
+        <input
+          id="task-title"
+          type="text"
+          required
+          maxlength="120"
+          placeholder="例：英語の宿題">
+      </label>
+
+      <label>
+        期限（日付）
+        <input id="task-date" type="date">
+      </label>
+
+      <label>
+        メモ
+        <textarea
+          id="task-notes"
+          rows="2"
+          maxlength="500"
+          placeholder="必要なことをメモ">
+        </textarea>
+      </label>
+
+      <div class="dialog-actions">
+        <button
+          id="delete-task"
+          type="button"
+          class="danger-button hidden">
+          削除
+        </button>
+
+        <span class="action-spacer"></span>
+
+        <button
+          type="button"
+          class="secondary-button close-dialog">
+          キャンセル
+        </button>
+
+        <button type="submit" class="primary-button">
+          保存する
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 操作結果のメッセージ -->
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- JavaScript：予定・タスク・保存など -->
+  <script src="./js/app.js"></script>
+</body>
+</html>
