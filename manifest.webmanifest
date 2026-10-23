@@ -1,0 +1,22 @@
+
+{
+  "id": "/One-for-All/",
+  "name": "One for All - Calendar",
+  "short_name": "One for All",
+  "description": "予定とタスクをまとめて管理するカレンダーアプリ",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f6f7fb",
+  "theme_color": "#5b62e8",
+  "icons": [
+    {
+      "src": "./icons/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
