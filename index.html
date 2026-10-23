@@ -1,13 +1,26 @@
+
 <!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#f6f7fb">
 
-  <title>カレンダー＆タスク</title>
+  <!-- ブラウザ・PWA設定 -->
+  <meta name="theme-color" content="#5b62e8">
+  <meta name="description" content="予定とタスクをまとめて管理するカレンダーアプリ">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="One for All">
 
-  <!-- CSS：カレンダーのデザイン -->
+  <title>One for All - Calendar</title>
+
+  <!-- PWA設定ファイル -->
+  <link rel="manifest" href="./manifest.webmanifest">
+
+  <!-- iPhone用アイコン -->
+  <link rel="apple-touch-icon" href="./icons/app-icon.svg">
+
+  <!-- カレンダーのデザイン -->
   <link rel="stylesheet" href="./css/style.css">
 </head>
 
@@ -18,7 +31,7 @@
     <header class="topbar">
       <div>
         <p class="eyebrow">PERSONAL PLANNER</p>
-        <h1>カレンダー <span>&amp; タスク</span></h1>
+        <h1>One for All <span>Calendar</span></h1>
       </div>
 
       <button id="add-event-top" class="primary-button">
@@ -71,10 +84,9 @@
         </div>
       </section>
 
-      <!-- 右側：選択日の予定とタスク -->
+      <!-- 選択日の予定・タスク -->
       <aside class="side-column">
 
-        <!-- 選択日の予定 -->
         <section class="panel day-panel">
           <div class="section-heading">
             <div>
@@ -93,7 +105,6 @@
           <div id="day-items" class="item-list"></div>
         </section>
 
-        <!-- やることリスト -->
         <section class="panel tasks-panel">
           <div class="section-heading">
             <div>
@@ -128,7 +139,7 @@
 
     <!-- バックアップ -->
     <footer>
-      <span>このブラウザ内に保存されます。</span>
+      <span>データはこのブラウザ内に保存されます。</span>
 
       <button id="export-button" class="text-button">
         データを書き出す
@@ -144,7 +155,7 @@
     </footer>
   </div>
 
-  <!-- 予定の追加・編集ダイアログ -->
+  <!-- 予定の追加・編集 -->
   <dialog id="event-dialog" class="editor-dialog">
     <form id="event-form">
       <div class="dialog-heading">
@@ -192,7 +203,7 @@
         </label>
 
         <label>
-          色
+          カテゴリ・色
           <select id="event-color">
             <option value="blue">ブルー</option>
             <option value="purple">パープル</option>
@@ -209,8 +220,7 @@
           id="event-notes"
           rows="3"
           maxlength="1000"
-          placeholder="場所や持ち物など">
-        </textarea>
+          placeholder="場所や持ち物など"></textarea>
       </label>
 
       <label class="check-row">
@@ -219,8 +229,8 @@
       </label>
 
       <p class="hint">
-        通知はページを開いている間に動作します。
-        ブラウザ通知には許可が必要です。
+        通知にはブラウザの許可が必要です。
+        アプリを閉じている間の通知は別途対応が必要です。
       </p>
 
       <div class="dialog-actions">
@@ -246,7 +256,7 @@
     </form>
   </dialog>
 
-  <!-- タスクの追加・編集ダイアログ -->
+  <!-- タスクの追加・編集 -->
   <dialog id="task-dialog" class="editor-dialog">
     <form id="task-form">
       <div class="dialog-heading">
@@ -286,8 +296,7 @@
           id="task-notes"
           rows="2"
           maxlength="500"
-          placeholder="必要なことをメモ">
-        </textarea>
+          placeholder="必要なことをメモ"></textarea>
       </label>
 
       <div class="dialog-actions">
@@ -313,10 +322,26 @@
     </form>
   </dialog>
 
-  <!-- 操作結果のメッセージ -->
+  <!-- 操作結果 -->
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <!-- JavaScript：予定・タスク・保存など -->
+  <!-- 既存のアプリ本体 -->
   <script src="./js/app.js"></script>
+
+  <!-- PWA：Service Workerの登録 -->
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker
+          .register("./service-worker.js")
+          .catch((error) => {
+            console.error(
+              "Service Workerの登録に失敗しました",
+              error
+            );
+          });
+      });
+    }
+  </script>
 </body>
 </html>
