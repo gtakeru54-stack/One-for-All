@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="ja">
 <head>
@@ -8,115 +7,302 @@
 <meta name="description" content="学習時間と目標を記録する、自分だけの学習管理アプリ。">
 <title>One for All — COSMOS</title>
 <link rel="manifest" href="./manifest.webmanifest">
-<link rel="stylesheet" href="./css/style.css?v=4">
+<link rel="stylesheet" href="./css/style.css?v=5">
 <link rel="icon" href="./icons/app-icon.svg" type="image/svg+xml">
-<script src="./js/app.js?v=4" defer></script>
+<script src="./js/app.js?v=5" defer></script>
 </head>
 <body>
 <div class="app-shell">
-  <header class="topbar">
-    <button class="brand" data-view="home" aria-label="ホームへ"><span class="brand-mark">✦</span><span><b>ONE FOR ALL</b><small>COSMOS · STUDY LOG</small></span></button>
-    <span class="today-chip" id="today-chip"></span>
-  </header>
-  <main>
-    <section class="view active" id="view-home">
-      <div class="hero">
-        <p class="eyebrow">YOUR PERSONAL UNIVERSE</p>
-        <h1>今日の一歩が、<br><span>未来の自分</span>をつくる。</h1>
-        <p class="muted">学習した時間を記録して、目標への進み具合を見える化。</p>
-        <div class="hero-total"><div><small>今日の学習時間</small><strong id="home-today">0分</strong></div><button class="primary-button" data-view="subjects">＋ 学習を記録</button></div>
-        <div class="progress-track"><span id="home-progress"></span></div>
-        <div class="progress-label"><span id="home-progress-label">今日の目標 0%</span><button class="text-button" data-view="records">記録を見る ↗</button></div>
-      </div>
-      <div class="stats-grid">
-        <article class="stat"><small>今日</small><strong id="stat-today">0分</strong></article>
-        <article class="stat"><small>今週</small><strong id="stat-week">0分</strong></article>
-        <article class="stat"><small>累計</small><strong id="stat-all">0時間</strong></article>
-      </div>
-      <div class="section-head"><div><p class="eyebrow">QUICK ACCESS</p><h2>マイ・スペース</h2></div></div>
-      <div class="quick-grid">
-        <button class="quick-card blue" data-view="subjects"><span>▤</span><b>科目</b><small>科目・学習項目・タイマー</small></button>
-        <button class="quick-card purple" data-view="records"><span>◔</span><b>学習記録</b><small>グラフ・期間別の集計</small></button>
-        <button class="quick-card teal" data-view="goals"><span>✧</span><b>目標マップ</b><small>最終目標から枝分かれ</small></button>
-        <button class="quick-card blue" data-view="calendar"><span>▦</span><b>カレンダー</b><small>予定・タスクを管理</small></button>
-      </div>
-      <div class="section-head"><div><p class="eyebrow">RECENT ACTIVITY</p><h2>最近の記録</h2></div><button class="text-button" data-view="records">すべて見る ↗</button></div>
-      <div class="record-list" id="home-records"></div>
-    </section>
 
-    <section class="view" id="view-subjects" hidden>
-      <div class="page-heading"><p class="eyebrow">YOUR SUBJECTS</p><h1>科目</h1><p>科目と学習項目を自分で作成し、タイマーで時間を記録。</p></div>
-      <div class="toolbar"><h2>マイ科目</h2><button class="primary-button" id="add-subject">＋ 科目を作成</button></div>
-      <div id="subject-list" class="subject-list"></div>
-      <section class="panel" id="subject-detail" hidden>
-        <div class="section-head"><div><p class="eyebrow">SUBJECT SPACE</p><h2 id="detail-title">科目</h2></div><button class="text-button" id="close-subject">閉じる ×</button></div>
-        <div class="toolbar"><p class="muted">学習項目ごとに時間を集計します。</p><button class="secondary-button" id="add-item">＋ 学習項目</button></div>
-        <div id="item-list" class="item-list"></div>
-      </section>
-      <section class="panel timer-panel" id="timer-panel" hidden>
-        <p class="eyebrow">FOCUS SESSION</p><h2 id="timer-label">学習タイマー</h2>
-        <div class="timer-display" id="timer-display">00:00:00</div>
-        <p class="muted" id="timer-state">開始すると学習時間を計測します。</p>
-        <div class="timer-actions"><button class="primary-button" id="timer-start">▶ 開始</button><button class="secondary-button" id="timer-pause" disabled>一時停止</button><button class="secondary-button" id="timer-finish" disabled>記録して終了</button></div>
-      </section>
-    </section>
+<header class="topbar">
+  <button class="brand" data-view="home" aria-label="ホームへ">
+    <span class="brand-mark">✦</span>
+    <span><b>ONE FOR ALL</b><small>COSMOS · STUDY LOG</small></span>
+  </button>
+  <span class="today-chip" id="today-chip"></span>
+</header>
 
-    <section class="view" id="view-records" hidden>
-      <div class="page-heading"><p class="eyebrow">YOUR PROGRESS</p><h1>学習記録</h1><p>時間の積み重ねと、設定した目標の達成率を確認。</p></div>
-      <div class="segmented" role="group" aria-label="集計期間"><button data-period="day" class="active">1日</button><button data-period="week">1週間</button><button data-period="month">1か月</button></div>
-      <div class="panel period-panel"><div class="period-heading"><div><small>選択中の期間</small><h2 id="period-title">今日</h2></div><strong id="period-total">0分</strong></div><div class="chart-wrap"><canvas id="bar-chart" aria-label="期間別学習時間グラフ"></canvas></div></div>
-      <div class="panel"><div class="section-head"><div><p class="eyebrow">GOAL PROGRESS</p><h2>目標達成率</h2></div></div>
-        <div class="goal-config"><label>目標の対象<select id="target-kind"><option value="time">学習時間</option><option value="quantity">学習量（項目数）</option></select></label><label>目標値<input id="target-value" type="number" min="1" max="100000" value="120"></label><label id="target-unit-label">単位<select id="target-unit"><option value="minutes">分</option><option value="hours">時間</option></select></label><button class="secondary-button" id="save-target">目標を保存</button></div>
-        <div class="donut-layout"><div class="donut" id="donut"><div><strong id="donut-percent">0%</strong><small>達成</small></div></div><div class="donut-info"><strong id="target-progress-text">0 / 120分</strong><p class="muted" id="target-explain">この期間の目標達成率です。</p><div class="legend"><span class="legend-dot done"></span>達成済み <span class="legend-dot remaining"></span>残り</div></div></div>
-      </div>
-      <div class="panel"><div class="section-head"><div><p class="eyebrow">BY SUBJECT</p><h2>科目別の時間</h2></div></div><div id="subject-breakdown" class="breakdown"></div></div>
-      <div class="panel"><div class="section-head"><div><p class="eyebrow">HISTORY</p><h2>この期間の記録</h2></div></div><div id="period-records" class="record-list"></div></div>
-    </section>
+<main>
 
-    <section class="view" id="view-calendar" hidden>
-      <div class="page-heading"><p class="eyebrow">YOUR SCHEDULE</p><h1>カレンダー</h1><p>予定とタスクを端末内に保存します。</p></div>
-      <div class="panel calendar-panel"><div class="calendar-toolbar"><button class="secondary-button" id="prev-month" type="button">‹</button><h2 id="month-title"></h2><button class="secondary-button" id="next-month" type="button">›</button><button class="text-button" id="today-button" type="button">今日</button></div>
-      <div class="calendar-grid" id="calendar-grid"></div></div>
-      <div class="panel"><div class="section-head"><div><p class="eyebrow">SELECTED DAY</p><h2 id="selected-date-title">今日の予定</h2></div><button class="primary-button" id="add-event-day" type="button">＋ 予定</button></div><div id="day-items" class="record-list"></div></div>
-      <div class="panel"><div class="section-head"><div><p class="eyebrow">TASK LIST</p><h2>タスク</h2></div><button class="secondary-button" id="add-task-button" type="button">＋ タスク</button></div><form id="quick-task-form" class="inline-task-form"><input id="quick-task-title" maxlength="120" required placeholder="タスクを入力"><button class="primary-button" type="submit">追加</button></form><div id="task-list" class="record-list"></div></div>
-    </section>
+<section class="view active" id="view-home">
+  <div class="hero">
+    <p class="eyebrow">YOUR PERSONAL UNIVERSE</p>
+    <h1>今日の一歩が、<br><span>未来の自分</span>をつくる。</h1>
+    <p class="muted">小さな努力を積み重ねて、未来の自分へ。</p>
 
-    <section class="view" id="view-goals" hidden>
-      <div class="page-heading"><p class="eyebrow">YOUR NORTH STAR</p><h1>目標マップ</h1><p>最終目標から枝を伸ばし、達成までの道筋を描こう。キャンバスは移動・拡大縮小できます。</p></div>
-      <div class="goal-toolbar"><button class="primary-button" id="add-goal">＋ 目標を追加</button><button class="secondary-button" id="reset-map">全体を表示</button><span class="muted" id="map-hint">ピンチで拡大・縮小／ドラッグで移動</span></div>
-      <div class="goal-canvas" id="goal-canvas" aria-label="目標マップ。ドラッグで移動できます。">
-        <svg id="goal-svg" viewBox="0 0 1000 700" role="img" aria-label="目標の枝分かれ図"><g id="goal-world"></g></svg>
-        <div class="canvas-zoom"><button id="zoom-out" aria-label="縮小">−</button><button id="zoom-in" aria-label="拡大">＋</button></div>
+    <div class="hero-total">
+      <div><small>今日の学習時間</small><strong id="home-today">0分</strong></div>
+      <button class="primary-button" data-view="subjects">＋ 学習を記録</button>
+    </div>
+
+    <div class="progress-track"><span id="home-progress"></span></div>
+    <div class="progress-label">
+      <span id="home-progress-label">今日の目標 0%</span>
+      <button class="text-button" data-view="records">記録を見る ↗</button>
+    </div>
+  </div>
+
+  <div class="stats-grid">
+    <article class="stat"><small>今日</small><strong id="stat-today">0分</strong></article>
+    <article class="stat"><small>今週</small><strong id="stat-week">0分</strong></article>
+    <article class="stat"><small>累計</small><strong id="stat-all">0時間</strong></article>
+  </div>
+
+  <section class="panel countdown-panel">
+    <div class="section-head">
+      <div><p class="eyebrow">COUNTDOWN</p><h2>大切な日まで</h2></div>
+      <button class="primary-button" id="add-countdown" type="button">＋ 追加</button>
+    </div>
+    <p class="muted">受験・試験・大会など、目標の日まであと何日かを確認できます。</p>
+    <div id="countdown-list" class="record-list"></div>
+  </section>
+
+  <div class="section-head">
+    <div><p class="eyebrow">QUICK ACCESS</p><h2>マイ・スペース</h2></div>
+  </div>
+
+  <div class="quick-grid">
+    <button class="quick-card blue" data-view="subjects"><span>▤</span><b>科目</b><small>科目・学習項目・タイマー</small></button>
+    <button class="quick-card purple" data-view="records"><span>◔</span><b>学習記録</b><small>グラフ・期間別の集計</small></button>
+    <button class="quick-card teal" data-view="goals"><span>✧</span><b>目標マップ</b><small>月を目指すスキルツリー</small></button>
+    <button class="quick-card blue" data-view="calendar"><span>▦</span><b>カレンダー</b><small>予定・タスクを管理</small></button>
+  </div>
+
+  <div class="section-head">
+    <div><p class="eyebrow">RECENT ACTIVITY</p><h2>最近の記録</h2></div>
+    <button class="text-button" data-view="records">すべて見る ↗</button>
+  </div>
+  <div class="record-list" id="home-records"></div>
+</section>
+
+<section class="view" id="view-subjects" hidden>
+  <div class="page-heading">
+    <p class="eyebrow">YOUR SUBJECTS</p>
+    <h1>科目</h1>
+    <p>科目と学習項目を作成し、学習時間を記録しよう。</p>
+  </div>
+
+  <div class="toolbar">
+    <h2>マイ科目</h2>
+    <button class="primary-button" id="add-subject">＋ 科目を作成</button>
+  </div>
+  <div id="subject-list" class="subject-list"></div>
+
+  <section class="panel" id="subject-detail" hidden>
+    <div class="section-head">
+      <div><p class="eyebrow">SUBJECT SPACE</p><h2 id="detail-title">科目</h2></div>
+      <button class="text-button" id="close-subject">閉じる ×</button>
+    </div>
+    <div class="toolbar">
+      <p class="muted">学習項目ごとに時間を集計します。</p>
+      <button class="secondary-button" id="add-item">＋ 学習項目</button>
+    </div>
+    <div id="item-list" class="item-list"></div>
+  </section>
+
+  <section class="panel timer-panel" id="timer-panel" hidden>
+    <p class="eyebrow">FOCUS SESSION</p>
+    <h2 id="timer-label">学習タイマー</h2>
+    <div class="timer-display" id="timer-display">00:00:00</div>
+    <p class="muted" id="timer-state">開始すると学習時間を計測します。</p>
+    <div class="timer-actions">
+      <button class="primary-button" id="timer-start">▶ 開始</button>
+      <button class="secondary-button" id="timer-pause" disabled>一時停止</button>
+      <button class="secondary-button" id="timer-finish" disabled>記録して終了</button>
+    </div>
+  </section>
+
+  <section class="panel" id="manual-time-panel">
+    <div class="section-head">
+      <div><p class="eyebrow">MANUAL LOG</p><h2>学習時間を手動で追加</h2></div>
+    </div>
+    <p class="muted">別のタイマーや時計で測った時間も記録できます。</p>
+    <form id="manual-time-form">
+      <label>科目
+        <select id="manual-subject" required>
+          <option value="">科目を選択</option>
+        </select>
+      </label>
+      <label>学習項目
+        <select id="manual-item">
+          <option value="">項目を選択（任意）</option>
+        </select>
+      </label>
+      <label>学習時間（分）
+        <input id="manual-minutes" type="number" min="1" max="100000" required placeholder="例：45">
+      </label>
+      <label>学習した日
+        <input id="manual-date" type="date" required>
+      </label>
+      <label>メモ（任意）
+        <input id="manual-note" type="text" maxlength="200" placeholder="例：問題集の20〜30ページ">
+      </label>
+      <button class="primary-button" type="submit">＋ 学習時間を記録</button>
+    </form>
+  </section>
+</section>
+
+<section class="view" id="view-records" hidden>
+  <div class="page-heading">
+    <p class="eyebrow">YOUR PROGRESS</p>
+    <h1>学習記録</h1>
+    <p>時間の積み重ねと、目標の達成率を確認。</p>
+  </div>
+
+  <div class="segmented" role="group" aria-label="集計期間">
+    <button data-period="day" class="active">1日</button>
+    <button data-period="week">1週間</button>
+    <button data-period="month">1か月</button>
+  </div>
+
+  <div class="panel period-panel">
+    <div class="period-heading">
+      <div><small>選択中の期間</small><h2 id="period-title">今日</h2></div>
+      <strong id="period-total">0分</strong>
+    </div>
+    <div class="chart-wrap"><canvas id="bar-chart" aria-label="期間別学習時間グラフ"></canvas></div>
+  </div>
+
+  <div class="panel">
+    <div class="section-head">
+      <div><p class="eyebrow">GOAL PROGRESS</p><h2>目標達成率</h2></div>
+    </div>
+    <div class="goal-config">
+      <label>目標の対象
+        <select id="target-kind">
+          <option value="time">学習時間</option>
+          <option value="quantity">学習量（項目数）</option>
+        </select>
+      </label>
+      <label>目標値
+        <input id="target-value" type="number" min="1" max="100000" value="120">
+      </label>
+      <label id="target-unit-label">単位
+        <select id="target-unit">
+          <option value="minutes">分</option>
+          <option value="hours">時間</option>
+        </select>
+      </label>
+      <button class="secondary-button" id="save-target">目標を保存</button>
+    </div>
+    <div class="donut-layout">
+      <div class="donut" id="donut">
+        <div><strong id="donut-percent">0%</strong><small>達成</small></div>
       </div>
-      <div class="panel goal-detail-panel">
-        <div class="section-head">
-          <div><p class="eyebrow">SELECTED GOAL</p><h2 id="selected-goal-title">最終目標</h2></div>
-        </div>
-        <p class="muted" id="selected-goal-desc">目標をタップすると詳細が表示されます。</p>
-        <div class="goal-progress-summary">
-          <div class="goal-progress-heading">
-            <strong id="selected-goal-progress-label">達成率 0%</strong>
-            <span id="selected-goal-due">期限未設定</span>
-          </div>
-          <div class="progress-track"><span id="selected-goal-progress-bar" style="width:0%"></span></div>
-          <p class="muted" id="selected-goal-progress-note">子目標の達成状況から自動計算します。</p>
-        </div>
-        <div class="goal-detail-actions">
-          <button class="primary-button" id="toggle-goal-done" type="button">✓ 達成にする</button>
-          <button class="secondary-button" id="add-child-goal" type="button">＋ この目標から枝を追加</button>
-          <button class="secondary-button" id="edit-goal" type="button">編集</button>
-          <button class="danger-button" id="delete-goal" type="button">削除</button>
-        </div>
+      <div class="donut-info">
+        <strong id="target-progress-text">0 / 120分</strong>
+        <p class="muted" id="target-explain">この期間の目標達成率です。</p>
+        <div class="legend"><span class="legend-dot done"></span>達成済み <span class="legend-dot remaining"></span>残り</div>
       </div>
-    </section>
-  </main>
-  <nav class="bottom-nav" aria-label="メインメニュー">
-    <button class="nav-item active" data-view="home"><span>⌂</span>ホーム</button>
-    <button class="nav-item" data-view="subjects"><span>▤</span>科目</button>
-    <button class="nav-item" data-view="records"><span>◔</span>記録</button>
-    <button class="nav-item" data-view="goals"><span>✧</span>目標</button>
-    <button class="nav-item" data-view="calendar"><span>▦</span>予定</button>
-  </nav>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="section-head">
+      <div><p class="eyebrow">BY SUBJECT</p><h2>科目別の時間</h2></div>
+    </div>
+    <div id="subject-breakdown" class="breakdown"></div>
+  </div>
+
+  <div class="panel">
+    <div class="section-head">
+      <div><p class="eyebrow">HISTORY</p><h2>この期間の記録</h2></div>
+    </div>
+    <div id="period-records" class="record-list"></div>
+  </div>
+</section>
+
+<section class="view" id="view-calendar" hidden>
+  <div class="page-heading">
+    <p class="eyebrow">YOUR SCHEDULE</p><h1>カレンダー</h1>
+    <p>予定とタスクを端末内に保存します。</p>
+  </div>
+
+  <div class="panel calendar-panel">
+    <div class="calendar-toolbar">
+      <button class="secondary-button" id="prev-month" type="button">‹</button>
+      <h2 id="month-title"></h2>
+      <button class="secondary-button" id="next-month" type="button">›</button>
+      <button class="text-button" id="today-button" type="button">今日</button>
+    </div>
+    <div class="calendar-grid" id="calendar-grid"></div>
+  </div>
+
+  <div class="panel">
+    <div class="section-head">
+      <div><p class="eyebrow">SELECTED DAY</p><h2 id="selected-date-title">今日の予定</h2></div>
+      <button class="primary-button" id="add-event-day" type="button">＋ 予定</button>
+    </div>
+    <div id="day-items" class="record-list"></div>
+  </div>
+
+  <div class="panel">
+    <div class="section-head">
+      <div><p class="eyebrow">TASK LIST</p><h2>タスク</h2></div>
+      <button class="secondary-button" id="add-task-button" type="button">＋ タスク</button>
+    </div>
+    <form id="quick-task-form" class="inline-task-form">
+      <input id="quick-task-title" maxlength="120" required placeholder="タスクを入力">
+      <button class="primary-button" type="submit">追加</button>
+    </form>
+    <div id="task-list" class="record-list"></div>
+  </div>
+</section>
+
+<section class="view" id="view-goals" hidden>
+  <div class="page-heading">
+    <p class="eyebrow">YOUR NORTH STAR</p>
+    <h1>目標マップ</h1>
+    <p>月を最終目標にして、惑星、小さな星へと枝を伸ばそう。自分だけの学習スキルツリーを作れます。</p>
+  </div>
+
+  <div class="goal-toolbar">
+    <button class="primary-button" id="add-goal">＋ 目標を追加</button>
+    <button class="secondary-button" id="reset-map">全体を表示</button>
+    <span class="muted" id="map-hint">ピンチで拡大・縮小／ドラッグで移動</span>
+  </div>
+
+  <div class="goal-canvas" id="goal-canvas" aria-label="目標マップ。ドラッグで移動できます。">
+    <svg id="goal-svg" viewBox="0 0 1000 700" role="img" aria-label="月へ向かう目標の枝分かれ図">
+      <g id="goal-world"></g>
+    </svg>
+    <div class="canvas-zoom">
+      <button id="zoom-out" aria-label="縮小">−</button>
+      <button id="zoom-in" aria-label="拡大">＋</button>
+    </div>
+  </div>
+
+  <div class="panel goal-detail-panel">
+    <div class="section-head">
+      <div><p class="eyebrow">SELECTED GOAL</p><h2 id="selected-goal-title">最終目標</h2></div>
+    </div>
+    <p class="muted" id="selected-goal-desc">目標をタップすると詳細が表示されます。</p>
+    <div class="goal-progress-summary">
+      <div class="goal-progress-heading">
+        <strong id="selected-goal-progress-label">達成率 0%</strong>
+        <span id="selected-goal-due">期限未設定</span>
+      </div>
+      <div class="progress-track"><span id="selected-goal-progress-bar" style="width:0%"></span></div>
+      <p class="muted" id="selected-goal-progress-note">子目標の達成状況から自動計算します。</p>
+    </div>
+    <div class="goal-detail-actions">
+      <button class="primary-button" id="toggle-goal-done" type="button">✓ 達成にする</button>
+      <button class="secondary-button" id="add-child-goal" type="button">＋ この目標から枝を追加</button>
+      <button class="secondary-button" id="edit-goal" type="button">編集</button>
+      <button class="danger-button" id="delete-goal" type="button">削除</button>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<nav class="bottom-nav" aria-label="メインメニュー">
+  <button class="nav-item active" data-view="home"><span>⌂</span>ホーム</button>
+  <button class="nav-item" data-view="subjects"><span>▤</span>科目</button>
+  <button class="nav-item" data-view="records"><span>◔</span>記録</button>
+  <button class="nav-item" data-view="goals"><span>✧</span>目標</button>
+  <button class="nav-item" data-view="calendar"><span>▦</span>予定</button>
+</nav>
 </div>
 
 <dialog id="subject-dialog" class="dialog">
@@ -126,6 +312,7 @@
     <div class="dialog-actions"><button type="button" class="secondary-button" data-close="subject-dialog">キャンセル</button><button class="primary-button">保存</button></div>
   </form>
 </dialog>
+
 <dialog id="item-dialog" class="dialog">
   <form id="item-form">
     <div class="dialog-head"><h2>学習項目を作成</h2><button type="button" class="close-dialog" data-close="item-dialog">×</button></div>
@@ -133,17 +320,49 @@
     <div class="dialog-actions"><button type="button" class="secondary-button" data-close="item-dialog">キャンセル</button><button class="primary-button">保存</button></div>
   </form>
 </dialog>
+
 <dialog id="goal-dialog" class="dialog">
   <form id="goal-form">
     <div class="dialog-head"><h2 id="goal-dialog-title">目標を追加</h2><button type="button" class="close-dialog" data-close="goal-dialog">×</button></div>
     <label>目標名<input id="goal-name" maxlength="100" required placeholder="例：英単語帳を1周する"></label>
-    <label>目標の種類<select id="goal-type" required><option value="final">最終目標（月）</option><option value="intermediate">中間目標（惑星）</option><option value="small">小目標（星）</option></select></label>
+    <label>目標の種類
+      <select id="goal-type" required>
+        <option value="final">最終目標（月）</option>
+        <option value="intermediate">中間目標（惑星）</option>
+        <option value="small">小目標（星）</option>
+      </select>
+    </label>
     <label id="goal-parent-field">親目標<select id="goal-parent"></select></label>
     <label>期限（任意）<input id="goal-due-date" type="date"></label>
     <label>メモ<textarea id="goal-note" rows="3" maxlength="500" placeholder="達成したいこと、進め方など"></textarea></label>
     <div class="dialog-actions"><button type="button" class="secondary-button" data-close="goal-dialog">キャンセル</button><button class="primary-button" type="submit">保存</button></div>
   </form>
 </dialog>
+
+<dialog id="countdown-dialog" class="dialog">
+  <form id="countdown-form">
+    <div class="dialog-head">
+      <h2 id="countdown-dialog-title">イベントを追加</h2>
+      <button type="button" class="close-dialog" data-close="countdown-dialog">×</button>
+    </div>
+    <input id="countdown-id" type="hidden">
+    <label>イベント名
+      <input id="countdown-title" maxlength="100" required placeholder="例：大学入学共通テスト">
+    </label>
+    <label>日付
+      <input id="countdown-date" type="date" required>
+    </label>
+    <label>メモ（任意）
+      <textarea id="countdown-note" rows="3" maxlength="300" placeholder="目標や準備すること"></textarea>
+    </label>
+    <div class="dialog-actions">
+      <button type="button" class="danger-button" id="delete-countdown">削除</button>
+      <button type="button" class="secondary-button" data-close="countdown-dialog">キャンセル</button>
+      <button class="primary-button" type="submit">保存</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="event-dialog" class="dialog">
   <form id="event-form">
     <div class="dialog-head"><h2 id="event-dialog-title">予定を追加</h2><button type="button" class="close-dialog" data-close="event-dialog">×</button></div>
@@ -155,6 +374,7 @@
     <div class="dialog-actions"><button type="button" class="danger-button" id="delete-event">削除</button><button type="button" class="secondary-button" data-close="event-dialog">キャンセル</button><button class="primary-button" type="submit">保存</button></div>
   </form>
 </dialog>
+
 <dialog id="task-dialog" class="dialog">
   <form id="task-form">
     <div class="dialog-head"><h2 id="task-dialog-title">タスクを追加</h2><button type="button" class="close-dialog" data-close="task-dialog">×</button></div>
@@ -165,6 +385,7 @@
     <div class="dialog-actions"><button type="button" class="danger-button" id="delete-task">削除</button><button type="button" class="secondary-button" data-close="task-dialog">キャンセル</button><button class="primary-button" type="submit">保存</button></div>
   </form>
 </dialog>
+
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </body>
 </html>
