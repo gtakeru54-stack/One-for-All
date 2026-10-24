@@ -3,154 +3,505 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 
-  <!-- ブラウザ・PWA設定 -->
-  <meta name="theme-color" content="#5b62e8">
-  <meta name="description" content="予定とタスクをまとめて管理するカレンダーアプリ">
+  <meta name="theme-color" content="#070b19">
+  <meta name="description" content="学習・予定・タスクをまとめて管理する個人用アプリ">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="One for All">
 
-  <title>One for All - Calendar</title>
+  <title>One for All - Learn</title>
 
-  <!-- PWA設定ファイル -->
   <link rel="manifest" href="./manifest.webmanifest">
-
-  <!-- iPhone用アイコン -->
   <link rel="apple-touch-icon" href="./icons/app-icon.svg">
-
-  <!-- カレンダーのデザイン -->
   <link rel="stylesheet" href="./css/style.css">
+
+  <!-- 学習メニュー専用のデザイン -->
+  <style>
+    .app-view[hidden] {
+      display: none !important;
+    }
+
+    .learning-home {
+      margin-bottom: 26px;
+    }
+
+    .learning-home h2 {
+      font-size: clamp(25px, 5vw, 34px);
+      margin-bottom: 10px;
+    }
+
+    .learning-description {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.8;
+    }
+
+    .study-overview {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin: 20px 0 28px;
+    }
+
+    .study-stat {
+      padding: 17px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(24, 33, 67, .68);
+    }
+
+    .study-stat-label {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 9px;
+    }
+
+    .study-stat strong {
+      font-size: 23px;
+      color: var(--cyan);
+    }
+
+    .study-stat small {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .menu-section-title {
+      font-size: 17px;
+      margin: 26px 0 14px;
+    }
+
+    .main-menu {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .menu-card {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 11px;
+      min-width: 0;
+      min-height: 155px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: linear-gradient(
+        145deg,
+        rgba(35, 44, 83, .92),
+        rgba(13, 19, 42, .92)
+      );
+      color: var(--text);
+      text-align: left;
+      box-shadow: var(--shadow);
+      transition: transform .18s, border-color .18s;
+    }
+
+    .menu-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--cyan);
+    }
+
+    .menu-card:active {
+      transform: scale(.98);
+    }
+
+    .menu-icon {
+      display: grid;
+      place-items: center;
+      width: 46px;
+      height: 46px;
+      border-radius: 15px;
+      background: var(--primary-soft);
+      font-size: 25px;
+    }
+
+    .menu-card strong {
+      font-size: 14px;
+    }
+
+    .menu-card small {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.6;
+    }
+
+    .study-placeholder {
+      padding: 22px 18px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.9;
+    }
+
+    .study-placeholder .placeholder-icon {
+      display: block;
+      margin-bottom: 12px;
+      font-size: 32px;
+    }
+
+    .study-placeholder strong {
+      display: block;
+      color: var(--text);
+      font-size: 16px;
+      margin-bottom: 8px;
+    }
+
+    .page-back {
+      margin-bottom: 20px;
+    }
+
+    .bottom-nav {
+      position: fixed;
+      z-index: 50;
+      bottom: max(10px, env(safe-area-inset-bottom));
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(460px, calc(100% - 24px));
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 4px;
+      padding: 8px;
+      border: 1px solid rgba(154, 170, 225, .25);
+      border-radius: 22px;
+      background: rgba(12, 18, 41, .95);
+      box-shadow: 0 12px 36px rgba(0, 0, 0, .4);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+    }
+
+    .bottom-nav button {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      min-width: 0;
+      min-height: 53px;
+      padding: 6px 2px;
+      border: 0;
+      border-radius: 14px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .bottom-nav button span {
+      font-size: 21px;
+      line-height: 1.2;
+    }
+
+    .bottom-nav button.active {
+      background: var(--primary-soft);
+      color: var(--cyan);
+    }
+
+    body {
+      padding-bottom: calc(100px + env(safe-area-inset-bottom));
+    }
+
+    @media (max-width: 560px) {
+      .main-menu {
+        gap: 10px;
+      }
+
+      .menu-card {
+        min-height: 145px;
+        padding: 14px;
+      }
+
+      .study-stat {
+        padding: 14px;
+      }
+
+      .study-stat strong {
+        font-size: 21px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .menu-card {
+        transition: none;
+      }
+    }
+  </style>
 </head>
 
 <body>
   <div class="app-shell">
 
-    <!-- ヘッダー -->
+    <!-- 共通ヘッダー -->
     <header class="topbar">
       <div>
-        <p class="eyebrow">PERSONAL PLANNER</p>
-        <h1>One for All <span>Calendar</span></h1>
+        <p class="eyebrow">ONE FOR ALL / COSMOS</p>
+        <h1>One for All <span>Learn</span></h1>
       </div>
 
-      <button id="add-event-top" class="primary-button">
+      <button id="add-event-top" class="primary-button" type="button">
         ＋ 予定を追加
       </button>
     </header>
 
-    <main class="layout">
+    <main>
 
-      <!-- 月間カレンダー -->
-      <section class="panel calendar-panel">
-        <div class="calendar-heading">
-          <button id="prev-month" class="icon-button" aria-label="前の月">
-            ‹
-          </button>
+      <!-- =========================
+           ホーム画面
+      ========================== -->
+      <section id="home-view" class="app-view">
+        <div class="learning-home">
+          <p class="eyebrow">YOUR LEARNING UNIVERSE</p>
+          <h2>学習ホーム</h2>
+          <p class="learning-description">
+            今日の積み重ねを、未来の力に。<br>
+            自分のペースで学習を進めよう。
+          </p>
+        </div>
 
-          <div>
-            <h2 id="month-title">カレンダーを読み込み中...</h2>
-            <button id="today-button" class="text-button">
-              今日に戻る
-            </button>
+        <div class="study-overview">
+          <div class="study-stat">
+            <span class="study-stat-label">今日の学習時間</span>
+            <strong>0<small> 分</small></strong>
           </div>
 
-          <button id="next-month" class="icon-button" aria-label="翌月">
-            ›
+          <div class="study-stat">
+            <span class="study-stat-label">今日の学習項目</span>
+            <strong>0<small> 件</small></strong>
+          </div>
+        </div>
+
+        <h2 class="menu-section-title">学習メニュー</h2>
+
+        <div class="main-menu">
+          <button class="menu-card" type="button" data-go="learning-view">
+            <span class="menu-icon">📚</span>
+            <strong>講座・授業</strong>
+            <small>科目や単元ごとに学習する</small>
+          </button>
+
+          <button class="menu-card" type="button" data-go="practice-view">
+            <span class="menu-icon">✍️</span>
+            <strong>問題演習</strong>
+            <small>問題を解いて理解度を確認する</small>
+          </button>
+
+          <button class="menu-card" type="button" data-go="flashcard-view">
+            <span class="menu-icon">🗂️</span>
+            <strong>暗記・復習</strong>
+            <small>英単語や重要用語を覚える</small>
+          </button>
+
+          <button class="menu-card" type="button" data-go="record-view">
+            <span class="menu-icon">📈</span>
+            <strong>学習記録</strong>
+            <small>学習時間や進捗を振り返る</small>
           </button>
         </div>
 
-        <div class="weekdays" aria-hidden="true">
-          <span>日</span>
-          <span>月</span>
-          <span>火</span>
-          <span>水</span>
-          <span>木</span>
-          <span>金</span>
-          <span>土</span>
-        </div>
+        <h2 class="menu-section-title">今日の予定</h2>
 
-        <div
-          id="calendar-grid"
-          class="calendar-grid"
-          aria-label="月間カレンダー">
-        </div>
+        <section class="panel">
+          <p class="learning-description">
+            今日の予定とタスクは、下の「予定」から確認できるよ。
+          </p>
+          <button type="button" class="secondary-button" data-go="calendar-view">
+            カレンダーを開く →
+          </button>
+        </section>
+      </section>
 
-        <div class="legend">
-          <span class="dot event-dot"></span>
-          予定あり
-          <span class="dot task-dot"></span>
-          タスク期限あり
+      <!-- =========================
+           講座・授業
+      ========================== -->
+      <section id="learning-view" class="app-view" hidden>
+        <button type="button" class="secondary-button page-back" data-go="home-view">
+          ← ホームへ戻る
+        </button>
+
+        <p class="eyebrow">LEARNING COURSES</p>
+        <h2>講座・授業</h2>
+        <p class="learning-description">
+          科目ごとに学習内容を整理しよう。
+        </p>
+
+        <div class="study-placeholder">
+          <span class="placeholder-icon">📚</span>
+          <strong>自分専用の学習講座</strong>
+          これから科目の登録、単元の作成、授業ノート、学習の進捗管理を追加するよ。
+          <p>次の開発段階で、国語・数学・英語・理科・社会などの科目を登録できるようにする予定。</p>
         </div>
       </section>
 
-      <!-- 選択日の予定・タスク -->
-      <aside class="side-column">
+      <!-- =========================
+           問題演習
+      ========================== -->
+      <section id="practice-view" class="app-view" hidden>
+        <button type="button" class="secondary-button page-back" data-go="home-view">
+          ← ホームへ戻る
+        </button>
 
-        <section class="panel day-panel">
-          <div class="section-heading">
+        <p class="eyebrow">PRACTICE</p>
+        <h2>問題演習</h2>
+        <p class="learning-description">
+          問題を解いて、理解できているところと苦手なところを見つけよう。
+        </p>
+
+        <div class="study-placeholder">
+          <span class="placeholder-icon">✍️</span>
+          <strong>自分で問題を解く</strong>
+          問題の登録、選択式・記述式の回答、正誤判定、解説、間違えた問題の復習を追加する予定。
+        </div>
+      </section>
+
+      <!-- =========================
+           暗記・復習
+      ========================== -->
+      <section id="flashcard-view" class="app-view" hidden>
+        <button type="button" class="secondary-button page-back" data-go="home-view">
+          ← ホームへ戻る
+        </button>
+
+        <p class="eyebrow">FLASHCARDS</p>
+        <h2>暗記・復習</h2>
+        <p class="learning-description">
+          覚えたい知識をカードにまとめて、繰り返し復習しよう。
+        </p>
+
+        <div class="study-placeholder">
+          <span class="placeholder-icon">🗂️</span>
+          <strong>自分専用の暗記カード</strong>
+          表面と裏面の登録、答えの確認、覚えた・まだ覚えていないの記録を追加する予定。
+        </div>
+      </section>
+
+      <!-- =========================
+           学習記録
+      ========================== -->
+      <section id="record-view" class="app-view" hidden>
+        <button type="button" class="secondary-button page-back" data-go="home-view">
+          ← ホームへ戻る
+        </button>
+
+        <p class="eyebrow">STUDY RECORD</p>
+        <h2>学習記録</h2>
+        <p class="learning-description">
+          毎日の努力を記録して、自分の成長を確認しよう。
+        </p>
+
+        <div class="study-placeholder">
+          <span class="placeholder-icon">📈</span>
+          <strong>学習の振り返り</strong>
+          学習タイマー、日別・週別の学習時間、科目別の進捗、正答率などを追加する予定。
+        </div>
+      </section>
+
+      <!-- =========================
+           既存カレンダー画面
+           既存のIDを維持する
+      ========================== -->
+      <div id="calendar-view" class="layout app-view" hidden>
+
+        <section class="panel calendar-panel">
+          <div class="calendar-heading">
+            <button id="prev-month" class="icon-button" type="button" aria-label="前の月">
+              ‹
+            </button>
+
             <div>
-              <p class="eyebrow">SELECTED DAY</p>
-              <h2 id="selected-date-title">今日の予定</h2>
+              <h2 id="month-title">カレンダーを読み込み中...</h2>
+              <button id="today-button" class="text-button" type="button">
+                今日に戻る
+              </button>
             </div>
 
-            <button
-              id="add-event-day"
-              class="small-add"
-              aria-label="選択日の予定を追加">
-              ＋
+            <button id="next-month" class="icon-button" type="button" aria-label="翌月">
+              ›
             </button>
           </div>
 
-          <div id="day-items" class="item-list"></div>
-        </section>
-
-        <section class="panel tasks-panel">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">TO DO</p>
-              <h2>やることリスト</h2>
-            </div>
-
-            <button
-              id="add-task-button"
-              class="small-add"
-              aria-label="タスクを追加">
-              ＋
-            </button>
+          <div class="weekdays" aria-hidden="true">
+            <span>日</span>
+            <span>月</span>
+            <span>火</span>
+            <span>水</span>
+            <span>木</span>
+            <span>金</span>
+            <span>土</span>
           </div>
 
-          <form id="quick-task-form" class="quick-task-form">
-            <input
-              id="quick-task-title"
-              type="text"
-              maxlength="120"
-              placeholder="やることを入力..."
-              aria-label="やること">
+          <div id="calendar-grid" class="calendar-grid" aria-label="月間カレンダー"></div>
 
-            <button type="submit">追加</button>
-          </form>
-
-          <div id="task-list" class="task-list"></div>
+          <div class="legend">
+            <span class="dot event-dot"></span>
+            予定あり
+            <span class="dot task-dot"></span>
+            タスク期限あり
+          </div>
         </section>
 
-      </aside>
+        <aside class="side-column">
+          <section class="panel day-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">SELECTED DAY</p>
+                <h2 id="selected-date-title">今日の予定</h2>
+              </div>
+
+              <button id="add-event-day" class="small-add" type="button" aria-label="選択日の予定を追加">
+                ＋
+              </button>
+            </div>
+
+            <div id="day-items" class="item-list"></div>
+          </section>
+
+          <section class="panel tasks-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">TO DO</p>
+                <h2>やることリスト</h2>
+              </div>
+
+              <button id="add-task-button" class="small-add" type="button" aria-label="タスクを追加">
+                ＋
+              </button>
+            </div>
+
+            <form id="quick-task-form" class="quick-task-form">
+              <input
+                id="quick-task-title"
+                type="text"
+                maxlength="120"
+                placeholder="やることを入力..."
+                aria-label="やること">
+
+              <button type="submit">追加</button>
+            </form>
+
+            <div id="task-list" class="task-list"></div>
+          </section>
+        </aside>
+      </div>
+
     </main>
 
     <!-- バックアップ -->
     <footer>
       <span>データはこのブラウザ内に保存されます。</span>
 
-      <button id="export-button" class="text-button">
+      <button id="export-button" class="text-button" type="button">
         データを書き出す
       </button>
 
       <label class="text-button import-label">
         読み込む
-        <input
-          id="import-file"
-          type="file"
-          accept="application/json">
+        <input id="import-file" type="file" accept="application/json">
       </label>
     </footer>
   </div>
@@ -164,10 +515,7 @@
           <h2 id="event-dialog-title">予定を追加</h2>
         </div>
 
-        <button
-          type="button"
-          class="icon-button close-dialog"
-          aria-label="閉じる">
+        <button type="button" class="icon-button close-dialog" aria-label="閉じる">
           ×
         </button>
       </div>
@@ -176,12 +524,7 @@
 
       <label>
         予定名
-        <input
-          id="event-title"
-          type="text"
-          required
-          maxlength="120"
-          placeholder="例：部活、課題提出">
+        <input id="event-title" type="text" required maxlength="120" placeholder="例：部活、課題提出">
       </label>
 
       <div class="form-row">
@@ -216,11 +559,7 @@
 
       <label>
         詳細
-        <textarea
-          id="event-notes"
-          rows="3"
-          maxlength="1000"
-          placeholder="場所や持ち物など"></textarea>
+        <textarea id="event-notes" rows="3" maxlength="1000" placeholder="場所や持ち物など"></textarea>
       </label>
 
       <label class="check-row">
@@ -234,18 +573,13 @@
       </p>
 
       <div class="dialog-actions">
-        <button
-          id="delete-event"
-          type="button"
-          class="danger-button hidden">
+        <button id="delete-event" type="button" class="danger-button hidden">
           削除
         </button>
 
         <span class="action-spacer"></span>
 
-        <button
-          type="button"
-          class="secondary-button close-dialog">
+        <button type="button" class="secondary-button close-dialog">
           キャンセル
         </button>
 
@@ -265,10 +599,7 @@
           <h2 id="task-dialog-title">タスクを追加</h2>
         </div>
 
-        <button
-          type="button"
-          class="icon-button close-dialog"
-          aria-label="閉じる">
+        <button type="button" class="icon-button close-dialog" aria-label="閉じる">
           ×
         </button>
       </div>
@@ -277,12 +608,7 @@
 
       <label>
         タスク名
-        <input
-          id="task-title"
-          type="text"
-          required
-          maxlength="120"
-          placeholder="例：英語の宿題">
+        <input id="task-title" type="text" required maxlength="120" placeholder="例：英語の宿題">
       </label>
 
       <label>
@@ -292,26 +618,17 @@
 
       <label>
         メモ
-        <textarea
-          id="task-notes"
-          rows="2"
-          maxlength="500"
-          placeholder="必要なことをメモ"></textarea>
+        <textarea id="task-notes" rows="2" maxlength="500" placeholder="必要なことをメモ"></textarea>
       </label>
 
       <div class="dialog-actions">
-        <button
-          id="delete-task"
-          type="button"
-          class="danger-button hidden">
+        <button id="delete-task" type="button" class="danger-button hidden">
           削除
         </button>
 
         <span class="action-spacer"></span>
 
-        <button
-          type="button"
-          class="secondary-button close-dialog">
+        <button type="button" class="secondary-button close-dialog">
           キャンセル
         </button>
 
@@ -322,11 +639,85 @@
     </form>
   </dialog>
 
-  <!-- 操作結果 -->
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <!-- 既存のアプリ本体 -->
+  <!-- 既存のカレンダー・タスク機能 -->
   <script src="./js/app.js"></script>
+
+  <!-- 画面切り替え -->
+  <script>
+    (() => {
+      const viewIds = [
+        "home-view",
+        "learning-view",
+        "practice-view",
+        "flashcard-view",
+        "record-view",
+        "calendar-view"
+      ];
+
+      function showView(viewId) {
+        if (!viewIds.includes(viewId)) return;
+
+        viewIds.forEach((id) => {
+          const view = document.getElementById(id);
+          if (view) {
+            view.hidden = id !== viewId;
+          }
+        });
+
+        document.querySelectorAll(".bottom-nav button").forEach((button) => {
+          const active = button.dataset.view === viewId;
+          button.classList.toggle("active", active);
+
+          if (active) {
+            button.setAttribute("aria-current", "page");
+          } else {
+            button.removeAttribute("aria-current");
+          }
+        });
+
+        window.scrollTo(0, 0);
+      }
+
+      document.querySelectorAll(".bottom-nav button[data-view]").forEach((button) => {
+        button.addEventListener("click", () => {
+          showView(button.dataset.view);
+        });
+      });
+
+      document.querySelectorAll("[data-go]").forEach((button) => {
+        button.addEventListener("click", () => {
+          showView(button.dataset.go);
+        });
+      });
+
+      showView("home-view");
+    })();
+  </script>
+
+  <!-- 下部ナビゲーション -->
+  <nav class="bottom-nav" aria-label="メインメニュー">
+    <button type="button" class="active" data-view="home-view">
+      <span>⌂</span>
+      ホーム
+    </button>
+
+    <button type="button" data-view="learning-view">
+      <span>▤</span>
+      学習
+    </button>
+
+    <button type="button" data-view="calendar-view">
+      <span>▦</span>
+      予定
+    </button>
+
+    <button type="button" data-view="record-view">
+      <span>▥</span>
+      記録
+    </button>
+  </nav>
 
   <!-- PWA：Service Workerの登録 -->
   <script>
@@ -335,10 +726,7 @@
         navigator.serviceWorker
           .register("./service-worker.js")
           .catch((error) => {
-            console.error(
-              "Service Workerの登録に失敗しました",
-              error
-            );
+            console.error("Service Workerの登録に失敗しました", error);
           });
       });
     }
