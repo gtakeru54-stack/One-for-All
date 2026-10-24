@@ -1,1588 +1,2085 @@
-/* ONE FOR ALL — COSMOS
+/* =========================================================
+   ONE FOR ALL — COSMOS
    js/app.js
-   index.html 対応版
-*/
+   学習記録・タイマー・目標・グラフ・カレンダー
+   ========================================================= */
+
 "use strict";
 
 (() => {
-  const $ = (s, r = document) => r.querySelector(s);
-  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const $ = (selector, root = document) => root.querySelector(selector);
+  const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
-  const KEYS = {
-    study: "oneforall-study-v1",
-    timer: "oneforall-timer-v1",
-    goals: "oneforall-goals-v1",
+  const STORAGE = {
     calendar: "personal-calendar-v1",
-    countdowns: "oneforall-countdowns-v1"
+    tasks: "personal-tasks-v1",
+    subjects: "one-for-all-subjects-v1",
+    records: "one-for-all-study-records-v1",
+    goals: "one-for-all-goals-v1",
+    countdown: "one-for-all-countdown-v1",
+    settings: "one-for-all-settings-v1",
+    items: "one-for-all-study-items-v1"
   };
 
   const COLORS = [
-    "#8eafff", "#c0a1ff", "#69dfc4",
-    "#f4c77b", "#ff9dc5", "#86d99b"
+    "#7c8cff", "#72dce8", "#c5a2ff", "#75e0b0",
+    "#ffd77b", "#ff94b0", "#8dc5ff", "#f3a66b"
   ];
 
-  const uid = () =>
-    crypto.randomUUID
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const state = {
+    view: "home",
+    subjects: [],
+    items: [],
+    records: [],
+    events: [],
+    tasks: [],
+    goals: [],
+    countdown: null,
+    settings: {
+      dailyTarget: 60,
+      weeklyTarget: 420
+    },
+    selectedSubjectId: null,
+    selectedItemId: null,
+    selectedDate: dateKey(new Date()),
+    calendarMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+    chartPeriod: "week",
+    breakdownMode: "subject",
+    timer: {
+      running: false,
+      startedAt: null,
+      elapsedBeforeStart: 0,
+      interval: null,
+      subjectId: null,
+      itemId: null
+    }
+  };
 
-  const esc = value =>
-    String(value ?? "").replace(/[&<>"']/g, c => ({
+  let toastTimeout = null;
+
+  function makeId(prefix = "id") {
+    return prefix + "-" + Date.now().toString(36) +
+      "-" + Math.random().toString(36).slice(2, 8);
+  }
+
+  function dateKey(date) {
+    const d = new Date(date);
+    return [
+      d.getFullYear(),
+      String(d.getMonth() + 1).padStart(2, "0"),
+      String(d.getDate()).padStart(2, "0")
+    ].join("-");
+  }
+
+  function parseDate(value) {
+    if (!value) return new Date();
+    const parts = String(value).split("-").map(Number);
+    if (parts.length !== 3 || parts.some(Number.isNaN)) return new Date();
+    return new Date(parts[0], parts[1] - 1, parts[2]);
+  }
+
+  function todayKey() {
+    return dateKey(new Date());
+  }
+
+  function addDays(date, amount) {
+    const d = new Date(date);
+    d.setDate(d.getDate() + amount);
+    return d;
+  }
+
+  function escapeHTML(value) {
+    return String(value ?? "").replace(/[&<>"']/g, char => ({
       "&": "&amp;",
       "<": "&lt;",
       ">": "&gt;",
       '"': "&quot;",
       "'": "&#39;"
-    })[c]);
+    })[char]);
+  }
 
-  const read = (key, fallback) => {
+  function formatMinutes(minutes) {
+    const total = Math.max(0, Math.round(Number(minutes) || 0));
+    const hours = Math.floor(total / 60);
+    const mins = total % 60;
+    if (hours && mins) return `${hours}時間${mins}分`;
+    if (hours) return `${hours}時間`;
+    return `${mins}分`;
+  }
+
+  function formatSeconds(seconds) {
+    const total = Math.max(0, Math.floor(seconds || 0));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    return [h, m, s].map(v => String(v).padStart(2, "0")).join(":");
+  }
+
+  function formatDate(value, options = {}) {
+    if (!value) return "日付未設定";
+    const d = parseDate(value);
+    return new Intl.DateTimeFormat("ja-JP", {
+      year: options.year ? "numeric" : undefined,
+      month: "numeric",
+      day: "numeric",
+      weekday: options.weekday ? "short" : undefined
+    }).format(d);
+  }
+
+  function readJSON(key, fallback) {
     try {
-      const value = localStorage.getItem(key);
-      return value ? JSON.parse(value) : fallback;
-    } catch {
+      const raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      const result = JSON.parse(raw);
+      return result ?? fallback;
+    } catch (error) {
+      console.warn("保存データを読み込めませんでした:", key, error);
       return fallback;
     }
-  };
+  }
 
-  const save = (key, value) => {
+  function writeJSON(key, value) {
     try {
       localStorage.setItem(key, JSON.stringify(value));
       return true;
-    } catch {
-      toast("保存できませんでした。端末の空き容量を確認してください。");
+    } catch (error) {
+      console.error("保存に失敗しました:", key, error);
+      showToast("保存できませんでした。空き容量を確認してください。");
       return false;
     }
-  };
-
-  function toast(message) {
-    const el = $("#toast");
-    if (!el) return;
-    el.textContent = message;
-    el.classList.add("show");
-    clearTimeout(toast.timer);
-    toast.timer = setTimeout(() => el.classList.remove("show"), 2400);
   }
 
-  const todayKey = (d = new Date()) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  function saveAll() {
+    writeJSON(STORAGE.subjects, state.subjects);
+    writeJSON(STORAGE.items, state.items);
+    writeJSON(STORAGE.records, state.records);
+    writeJSON(STORAGE.calendar, state.events);
+    writeJSON(STORAGE.tasks, state.tasks);
+    writeJSON(STORAGE.goals, state.goals);
+    writeJSON(STORAGE.countdown, state.countdown);
+    writeJSON(STORAGE.settings, state.settings);
+  }
 
-  const localDate = key => {
-    const [y, m, d] = key.split("-").map(Number);
-    return new Date(y, m - 1, d);
-  };
-
-  const dayOffset = (date, amount) => {
-    const result = new Date(date);
-    result.setDate(result.getDate() + amount);
-    return result;
-  };
-
-  const duration = seconds => {
-    const minutes = Math.floor(Math.max(0, seconds) / 60);
-    const hours = Math.floor(minutes / 60);
-    return hours ? `${hours}時間${minutes % 60}分` : `${minutes}分`;
-  };
-
-  const timerText = seconds =>
-    [Math.floor(seconds / 3600), Math.floor(seconds % 3600 / 60), Math.floor(seconds % 60)]
-      .map(n => String(n).padStart(2, "0"))
-      .join(":");
-
-  const empty = message =>
-    `<div class="empty"><span>✧</span><p>${esc(message)}</p></div>`;
-
-  // 学習データを既存の保存形式から読み込む
-  const oldStudy = read(KEYS.study, {});
-
-  const state = {
-    subjects: Array.isArray(oldStudy.subjects) ? oldStudy.subjects : [],
-    items: Array.isArray(oldStudy.items) ? oldStudy.items : [],
-    records: (Array.isArray(oldStudy.records) ? oldStudy.records : []).map(r => ({
-      id: String(r.id || uid()),
-      subject: String(r.subject || r.category || "未分類"),
-      item: String(r.item || r.title || "学習"),
-      date: /^\d{4}-\d{2}-\d{2}$/.test(r.date || "") ? r.date : todayKey(),
-      seconds: Math.max(0, Math.round(Number(
-        r.durationSeconds ?? (Number(r.minutes) || 0) * 60
-      ) || 0)),
-      createdAt: Number(r.createdAt) || Date.now(),
-      note: String(r.note || "")
-    })),
-    targets: oldStudy.targets || {
-      day: { kind: "time", value: 120, unit: "minutes" },
-      week: { kind: "time", value: 600, unit: "minutes" },
-      month: { kind: "time", value: 2400, unit: "minutes" }
+  function normalizeSubject(subject, index) {
+    if (typeof subject === "string") {
+      return {
+        id: makeId("subject"),
+        name: subject,
+        color: COLORS[index % COLORS.length]
+      };
     }
-  };
+    return {
+      id: String(subject.id ?? subject.subjectId ?? makeId("subject")),
+      name: String(subject.name ?? subject.title ?? "科目"),
+      color: subject.color || COLORS[index % COLORS.length]
+    };
+  }
 
-  (Array.isArray(oldStudy.categories) ? oldStudy.categories : []).forEach(name => {
-    if (name && !state.subjects.some(s => s.name === name)) {
-      state.subjects.push({ id: uid(), name });
+  function normalizeItem(item) {
+    if (typeof item === "string") {
+      return {
+        id: makeId("item"),
+        subjectId: state.subjects[0]?.id ?? "",
+        name: item
+      };
     }
-  });
-
-  state.records.forEach(r => {
-    if (!state.subjects.some(s => s.name === r.subject)) {
-      state.subjects.push({ id: uid(), name: r.subject });
-    }
-  });
-
-  if (!state.subjects.length) {
-    state.subjects = [
-      { id: uid(), name: "数学" },
-      { id: uid(), name: "英語" },
-      { id: uid(), name: "理科" }
-    ];
+    return {
+      id: String(item.id ?? item.itemId ?? makeId("item")),
+      subjectId: String(item.subjectId ?? item.subject_id ?? ""),
+      name: String(item.name ?? item.title ?? item.label ?? "学習項目")
+    };
   }
 
-  state.items = state.items.map(i => ({
-    id: String(i.id || uid()),
-    subjectId: String(
-      i.subjectId ||
-      state.subjects.find(s => s.name === i.subject)?.id ||
-      state.subjects[0].id
-    ),
-    name: String(i.name || i.title || "学習項目")
-  }));
-
-  state.records.forEach(r => {
-    const subject = state.subjects.find(s => s.name === r.subject);
-    if (subject && !state.items.some(i =>
-      i.subjectId === subject.id && i.name === r.item
-    )) {
-      state.items.push({ id: uid(), subjectId: subject.id, name: r.item });
-    }
-  });
-
-  let selectedSubject = state.subjects[0]?.id || "";
-  let selectedItem = "";
-  let period = "day";
-
-  let timer = read(KEYS.timer, {
-    elapsedSeconds: 0,
-    running: false,
-    paused: false,
-    startedAt: null,
-    subjectId: "",
-    itemId: ""
-  });
-
-  let elapsedBase = Math.max(0, Number(timer.elapsedSeconds) || 0);
-  let startedAt = timer.running && timer.startedAt ? Number(timer.startedAt) : null;
-  let running = Boolean(startedAt);
-  let paused = Boolean(timer.paused);
-  let tick = null;
-
-  function elapsed() {
-    return elapsedBase +
-      (running && startedAt ? Math.max(0, (Date.now() - startedAt) / 1000) : 0);
-  }
-
-  function persistStudy() {
-    save(KEYS.study, {
-      subjects: state.subjects,
-      items: state.items,
-      records: state.records.map(r => ({
-        id: r.id,
-        category: r.subject,
-        item: r.item,
-        date: r.date,
-        durationSeconds: r.seconds,
-        createdAt: r.createdAt,
-        note: r.note || ""
-      })),
-      categories: state.subjects.map(s => s.name),
-      dailyGoalMinutes: 120,
-      targets: state.targets
-    });
-  }
-
-  function persistTimer() {
-    save(KEYS.timer, {
-      elapsedSeconds: Math.floor(elapsed()),
-      running,
-      paused,
-      startedAt,
-      subjectId: timer.subjectId || selectedSubject,
-      itemId: timer.itemId || selectedItem
-    });
-  }
-
-  function total(records) {
-    return records.reduce((sum, r) => sum + r.seconds, 0);
-  }
-
-  function recordsForDates(start, end) {
-    return state.records.filter(r => r.date >= start && r.date <= end);
-  }
-
-  function recordHTML(r) {
-    const color = COLORS[Math.abs(r.subject.length) % COLORS.length];
-    return `<article class="record">
-      <i style="background:${color}"></i>
-      <div><b>${esc(r.item)}</b><small>${esc(r.subject)} · ${esc(r.date)}${r.note ? " · " + esc(r.note) : ""}</small></div>
-      <strong>${duration(r.seconds)}</strong>
-    </article>`;
-  }
-
-  // ナビゲーション
-  function showView(name) {
-    $$(".view").forEach(view => {
-      const active = view.id === `view-${name}`;
-      view.hidden = !active;
-      view.classList.toggle("active", active);
-    });
-
-    $$(".nav-item").forEach(button =>
-      button.classList.toggle("active", button.dataset.view === name)
+  function normalizeRecord(record) {
+    const minutes = Number(
+      record.minutes ??
+      record.durationMinutes ??
+      record.duration ??
+      record.studyMinutes ??
+      0
     );
 
-    if (name === "home") renderHome();
-    if (name === "subjects") renderSubjects();
-    if (name === "records") renderRecords();
-    if (name === "goals") renderGoals();
-    if (name === "calendar") renderCalendarAll();
+    return {
+      id: String(record.id ?? makeId("record")),
+      subjectId: String(record.subjectId ?? record.subject_id ?? ""),
+      itemId: String(record.itemId ?? record.item_id ?? ""),
+      date: String(record.date ?? record.studyDate ?? record.day ?? todayKey()).slice(0, 10),
+      minutes: Math.max(0, minutes),
+      note: String(record.note ?? record.memo ?? ""),
+      createdAt: record.createdAt ?? Date.now()
+    };
+  }
+
+  function loadData() {
+    const rawSubjects = readJSON(STORAGE.subjects, []);
+    state.subjects = Array.isArray(rawSubjects)
+      ? rawSubjects.map(normalizeSubject)
+      : [];
+
+    const rawItems = readJSON(STORAGE.items, []);
+    state.items = Array.isArray(rawItems)
+      ? rawItems.map(normalizeItem)
+      : [];
+
+    const rawRecords = readJSON(STORAGE.records, []);
+    state.records = Array.isArray(rawRecords)
+      ? rawRecords.map(normalizeRecord).filter(r => r.minutes > 0)
+      : [];
+
+    const rawEvents = readJSON(STORAGE.calendar, []);
+    state.events = Array.isArray(rawEvents)
+      ? rawEvents.map(event => ({
+          ...event,
+          id: String(event.id ?? makeId("event")),
+          title: String(event.title ?? event.name ?? "予定"),
+          date: String(event.date ?? event.startDate ?? todayKey()).slice(0, 10),
+          time: String(event.time ?? ""),
+          category: String(event.category ?? "personal"),
+          note: String(event.note ?? "")
+        }))
+      : [];
+
+    const rawTasks = readJSON(STORAGE.tasks, []);
+    state.tasks = Array.isArray(rawTasks)
+      ? rawTasks.map(task => ({
+          ...task,
+          id: String(task.id ?? makeId("task")),
+          title: String(task.title ?? task.name ?? "タスク"),
+          date: String(task.date ?? task.deadline ?? ""),
+          priority: String(task.priority ?? "normal"),
+          completed: Boolean(task.completed ?? task.done)
+        }))
+      : [];
+
+    const rawGoals = readJSON(STORAGE.goals, []);
+    state.goals = Array.isArray(rawGoals)
+      ? rawGoals.map(goal => ({
+          ...goal,
+          id: String(goal.id ?? makeId("goal")),
+          name: String(goal.name ?? goal.title ?? "目標"),
+          description: String(goal.description ?? ""),
+          deadline: String(goal.deadline ?? ""),
+          parentId: String(goal.parentId ?? ""),
+          step: String(goal.step ?? ""),
+          completed: Boolean(goal.completed),
+          createdAt: goal.createdAt ?? Date.now()
+        }))
+      : [];
+
+    state.countdown = readJSON(STORAGE.countdown, null);
+    state.settings = {
+      ...state.settings,
+      ...(readJSON(STORAGE.settings, {}) || {})
+    };
+
+    if (!state.subjects.length) {
+      state.subjects = [
+        { id: "subject-japanese", name: "国語", color: "#ff94b0" },
+        { id: "subject-math", name: "数学", color: "#7c8cff" },
+        { id: "subject-english", name: "英語", color: "#72dce8" },
+        { id: "subject-science", name: "理科", color: "#75e0b0" },
+        { id: "subject-social", name: "社会", color: "#ffd77b" }
+      ];
+    }
+
+    state.items = state.items.filter(item =>
+      state.subjects.some(subject => subject.id === item.subjectId)
+    );
+
+    if (!state.selectedSubjectId && state.subjects.length) {
+      state.selectedSubjectId = state.subjects[0].id;
+    }
+
+    saveAll();
+  }
+
+  function showToast(message) {
+    const toast = $("#toast");
+    if (!toast) return;
+
+    toast.textContent = message;
+    toast.classList.add("show");
+
+    clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => {
+      toast.classList.remove("show");
+    }, 2600);
+  }
+
+  function showView(viewName) {
+    const view = $(`[data-view="${viewName}"]`);
+    if (!view) return;
+
+    state.view = viewName;
+
+    $$(".view").forEach(section => {
+      section.classList.toggle("active", section.dataset.view === viewName);
+    });
+
+    $$(".nav-button").forEach(button => {
+      button.classList.toggle("active", button.dataset.navigate === viewName);
+    });
+
+    if (viewName === "home") renderHome();
+    if (viewName === "subjects") renderSubjects();
+    if (viewName === "records") renderRecords();
+    if (viewName === "calendar") renderCalendar();
+    if (viewName === "goals") renderGoals();
 
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  $$("[data-view]").forEach(button => {
-    button.addEventListener("click", event => {
-      event.preventDefault();
-      showView(button.dataset.view);
-    });
-  });
+  function openDialog(id) {
+    const dialog = document.getElementById(id);
+    if (!dialog) return;
 
-  $$("[data-close]").forEach(button => {
-    button.addEventListener("click", () => {
-      const dialog = $("#" + button.dataset.close);
-      if (dialog) dialog.close();
-    });
-  });
+    if (id === "event-dialog") {
+      const dateInput = $("#event-date");
+      if (dateInput && !dateInput.value) {
+        dateInput.value = state.selectedDate || todayKey();
+      }
+    }
 
-  const todayChip = $("#today-chip");
-  if (todayChip) {
-    todayChip.textContent = new Date().toLocaleDateString("ja-JP", {
-      month: "short", day: "numeric", weekday: "short"
+    if (id === "task-dialog") {
+      const dateInput = $("#task-date");
+      if (dateInput && !dateInput.value) {
+        dateInput.value = state.selectedDate || todayKey();
+      }
+    }
+
+    if (id === "countdown-dialog" && state.countdown) {
+      $("#countdown-name").value = state.countdown.name || "";
+      $("#countdown-date").value = state.countdown.date || "";
+    }
+
+    if (id === "goal-dialog") {
+      renderGoalParentOptions();
+    }
+
+    if (typeof dialog.showModal === "function") {
+      if (!dialog.open) dialog.showModal();
+    } else {
+      dialog.setAttribute("open", "");
+    }
+  }
+
+  function closeDialog(dialog) {
+    if (!dialog) return;
+    if (typeof dialog.close === "function") dialog.close();
+    else dialog.removeAttribute("open");
+  }
+
+  function subjectById(id) {
+    return state.subjects.find(subject => subject.id === id);
+  }
+
+  function itemById(id) {
+    return state.items.find(item => item.id === id);
+  }
+
+  function subjectName(id) {
+    return subjectById(id)?.name || "未分類";
+  }
+
+  function itemName(id) {
+    return itemById(id)?.name || "項目なし";
+  }
+
+  function getRecordsForDate(date) {
+    return state.records.filter(record => record.date === date);
+  }
+
+  function totalMinutes(records = state.records) {
+    return records.reduce((sum, record) => sum + (Number(record.minutes) || 0), 0);
+  }
+
+  function getTodayMinutes() {
+    return totalMinutes(getRecordsForDate(todayKey()));
+  }
+
+  function getWeekStart(date = new Date()) {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    return d;
+  }
+
+  function getWeekRecords() {
+    const start = getWeekStart();
+    const end = addDays(start, 7);
+    return state.records.filter(record => {
+      const date = parseDate(record.date);
+      return date >= start && date < end;
     });
   }
 
-  // ホーム画面
   function renderHome() {
-    const today = total(recordsForDates(todayKey(), todayKey()));
-    const date = localDate(todayKey());
-    const monday = dayOffset(date, -((date.getDay() + 6) % 7));
-    const sunday = dayOffset(monday, 6);
-    const week = total(recordsForDates(todayKey(monday), todayKey(sunday)));
-    const all = total(state.records);
+    const dateElement = $("#home-date");
+    if (dateElement) {
+      dateElement.textContent = new Intl.DateTimeFormat("ja-JP", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        weekday: "long"
+      }).format(new Date());
+    }
 
-    $("#home-today").textContent = duration(today);
-    $("#stat-today").textContent = duration(today);
-    $("#stat-week").textContent = duration(week);
-    $("#stat-all").textContent = duration(all);
+    $("#home-today-time")?.replaceChildren(
+      document.createTextNode(formatMinutes(getTodayMinutes()))
+    );
 
-    const target = state.targets.day || { value: 120, unit: "minutes" };
-    const targetSeconds = Number(target.value || 120) *
-      (target.unit === "hours" ? 3600 : 60);
-    const pct = Math.min(100, Math.round(today / Math.max(1, targetSeconds) * 100));
+    $("#home-total-time")?.replaceChildren(
+      document.createTextNode(formatMinutes(totalMinutes()))
+    );
 
-    $("#home-progress").style.width = pct + "%";
-    $("#home-progress-label").textContent = `今日の目標 ${pct}%`;
-
-    const recent = [...state.records]
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, 4);
-
-    $("#home-records").innerHTML = recent.length
-      ? recent.map(recordHTML).join("")
-      : empty("学習記録はまだありません。科目からタイマーを使って記録しましょう。");
-
-    renderCountdowns();
+    renderCountdown();
+    renderHomeEvents();
   }
 
-  // 科目と学習項目
-  function renderSubjects() {
-    $("#subject-list").innerHTML = state.subjects.map((s, index) => {
-      const items = state.items.filter(i => i.subjectId === s.id).length;
-      const seconds = total(state.records.filter(r => r.subject === s.name));
+  function renderCountdown() {
+    const container = $("#home-countdown");
+    if (!container) return;
 
-      return `<button class="subject-card ${selectedSubject === s.id ? "selected" : ""}" data-subject="${esc(s.id)}">
-        <span class="subject-symbol" style="--subject-color:${COLORS[index % COLORS.length]}">✦</span>
-        <span><b>${esc(s.name)}</b><small>${items}項目 · 累計 ${duration(seconds)}</small></span>
-        <span>›</span>
-      </button>`;
-    }).join("") || empty("まず科目を作成してください。");
-
-    $$("[data-subject]").forEach(button => {
-      button.addEventListener("click", () => {
-        selectedSubject = button.dataset.subject;
-        selectedItem = "";
-        renderSubjects();
-        renderSubjectDetail();
-      });
-    });
-
-    updateManualSubjects();
-    renderSubjectDetail();
-  }
-
-  function renderSubjectDetail() {
-    const subject = state.subjects.find(s => s.id === selectedSubject);
-    if (!subject) {
-      $("#subject-detail").hidden = true;
+    if (!state.countdown?.date || !state.countdown?.name) {
+      container.innerHTML = `
+        <p>目標イベントを設定しよう</p>
+        <button class="primary-button" type="button" data-open-dialog="countdown-dialog">
+          イベントを追加
+        </button>`;
       return;
     }
 
-    $("#subject-detail").hidden = false;
-    $("#detail-title").textContent = subject.name;
+    const today = parseDate(todayKey());
+    const target = parseDate(state.countdown.date);
+    const days = Math.round((target - today) / 86400000);
 
-    const items = state.items.filter(i => i.subjectId === subject.id);
+    let remainingText;
+    if (days > 0) remainingText = `あと ${days} 日`;
+    else if (days === 0) remainingText = "今日は本番の日！";
+    else remainingText = `${Math.abs(days)} 日経過`;
 
-    $("#item-list").innerHTML = items.map(item => {
-      const records = state.records.filter(r =>
-        r.subject === subject.name && r.item === item.name
+    container.innerHTML = `
+      <p>${escapeHTML(state.countdown.name)}</p>
+      <strong class="countdown-number">${escapeHTML(remainingText)}</strong>
+      <p class="muted">${escapeHTML(formatDate(state.countdown.date, { year: true, weekday: true }))}</p>
+      <button class="secondary-button" type="button" data-open-dialog="countdown-dialog">変更する</button>`;
+  }
+
+  function renderHomeEvents() {
+    const container = $("#home-today-events");
+    if (!container) return;
+
+    const todayEvents = state.events
+      .filter(event => event.date === todayKey())
+      .sort((a, b) => String(a.time).localeCompare(String(b.time)));
+
+    if (!todayEvents.length) {
+      container.innerHTML = '<p class="empty-state">今日の予定はありません。</p>';
+      return;
+    }
+
+    container.innerHTML = todayEvents.map(event => `
+      <article class="event-card" data-category="${escapeHTML(event.category)}">
+        <div class="event-card-header">
+          <div>
+            <h3>${escapeHTML(event.title)}</h3>
+            <p>${escapeHTML(event.time || "時間未設定")}</p>
+          </div>
+          <button class="secondary-button" type="button" data-delete-event="${escapeHTML(event.id)}">削除</button>
+        </div>
+      </article>`).join("");
+  }
+
+  function renderSubjects() {
+    renderSubjectSelects();
+    renderSubjectList();
+    renderStudyItems();
+    updateTimerDisplay();
+  }
+
+  function renderSubjectSelects() {
+    const selects = [
+      $("#manual-subject"),
+      $("#item-subject")
+    ].filter(Boolean);
+
+    for (const select of selects) {
+      const previous = select.value;
+      const firstText = select.id === "manual-subject"
+        ? "科目を選択"
+        : "科目を選択";
+
+      select.innerHTML = `<option value="">${firstText}</option>` +
+        state.subjects.map(subject => `
+          <option value="${escapeHTML(subject.id)}">${escapeHTML(subject.name)}</option>`
+        ).join("");
+
+      if (state.subjects.some(subject => subject.id === previous)) {
+        select.value = previous;
+      } else if (state.selectedSubjectId) {
+        select.value = state.selectedSubjectId;
+      }
+    }
+
+    const manualItem = $("#manual-item");
+    if (manualItem) {
+      const previous = manualItem.value;
+      const subjectId = $("#manual-subject")?.value || "";
+
+      const items = state.items.filter(item =>
+        !subjectId || item.subjectId === subjectId
       );
 
-      const sum = total(records);
-      const weekStart = todayKey(dayOffset(
-        localDate(todayKey()),
-        -((localDate(todayKey()).getDay() + 6) % 7)
-      ));
-      const week = total(records.filter(r => r.date >= weekStart && r.date <= todayKey()));
-      const day = total(records.filter(r => r.date === todayKey()));
+      manualItem.innerHTML = '<option value="">項目を選択（任意）</option>' +
+        items.map(item => `
+          <option value="${escapeHTML(item.id)}">${escapeHTML(subjectName(item.subjectId))} / ${escapeHTML(item.name)}</option>`
+        ).join("");
 
-      return `<article class="item-card">
-        <div><b>${esc(item.name)}</b><small>累計 ${duration(sum)} · 今週 ${duration(week)} · 今日 ${duration(day)}</small></div>
-        <button class="primary-button start-item" data-item="${esc(item.id)}">▶ 計測</button>
-      </article>`;
-    }).join("") || empty("この科目に学習項目はありません。「学習項目」から追加できます。");
-
-    $$(".start-item").forEach(button => {
-      button.addEventListener("click", () => startForItem(button.dataset.item));
-    });
-
-    updateManualItems();
-
-    const hasTimer = timer.subjectId === subject.id &&
-      (elapsed() > 0 || running || paused);
-
-    $("#timer-panel").hidden = !hasTimer;
-
-    if (hasTimer) {
-      selectedItem = timer.itemId;
-      const item = state.items.find(i => i.id === selectedItem);
-      $("#timer-label").textContent = `${subject.name} · ${item?.name || "学習"}`;
-      updateTimerUI();
+      if (items.some(item => item.id === previous)) manualItem.value = previous;
     }
   }
 
-  $("#add-subject").addEventListener("click", () => {
-    $("#subject-form").reset();
-    $("#subject-dialog").showModal();
-  });
+  function renderSubjectList() {
+    const container = $("#subject-list");
+    if (!container) return;
 
-  $("#subject-form").addEventListener("submit", event => {
-    event.preventDefault();
-
-    const name = $("#subject-name").value.trim();
-    if (!name) return;
-
-    if (state.subjects.some(s => s.name.toLowerCase() === name.toLowerCase())) {
-      return toast("同じ名前の科目があります。");
+    if (!state.subjects.length) {
+      container.innerHTML = '<p class="empty-state">科目を追加してください。</p>';
+      return;
     }
 
-    const subject = { id: uid(), name };
-    state.subjects.push(subject);
-    selectedSubject = subject.id;
+    container.innerHTML = state.subjects.map(subject => {
+      const minutes = totalMinutes(
+        state.records.filter(record => record.subjectId === subject.id)
+      );
+      const selected = state.selectedSubjectId === subject.id;
 
-    persistStudy();
-    $("#subject-dialog").close();
+      return `
+        <div class="subject-card ${selected ? "selected" : ""}">
+          <button class="item-select" type="button" data-select-subject="${escapeHTML(subject.id)}"
+            style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;border:0;background:transparent;color:inherit;text-align:left">
+            <span class="subject-color-dot" style="background:${escapeHTML(subject.color)}"></span>
+            <span class="subject-name">
+              ${escapeHTML(subject.name)}
+              <span class="subject-meta">${formatMinutes(minutes)} · ${state.items.filter(item => item.subjectId === subject.id).length}項目</span>
+            </span>
+          </button>
+          <button class="icon-button" type="button" data-delete-subject="${escapeHTML(subject.id)}" aria-label="科目を削除">×</button>
+        </div>`;
+    }).join("");
+  }
+
+  function renderStudyItems() {
+    const container = $("#study-item-list");
+    if (!container) return;
+
+    const subject = subjectById(state.selectedSubjectId);
+    const nameElement = $("#selected-subject-name");
+
+    if (nameElement) {
+      nameElement.textContent = subject
+        ? `選択中：${subject.name}`
+        : "科目を選択してください。";
+    }
+
+    const items = state.items.filter(item =>
+      item.subjectId === state.selectedSubjectId
+    );
+
+    if (!items.length) {
+      container.innerHTML = '<p class="empty-state">学習項目がありません。「項目追加」から登録してください。</p>';
+      return;
+    }
+
+    container.innerHTML = items.map(item => {
+      const minutes = totalMinutes(
+        state.records.filter(record => record.itemId === item.id)
+      );
+      const selected = state.selectedItemId === item.id;
+
+      return `
+        <div class="study-item-card ${selected ? "selected" : ""}">
+          <button class="item-select" type="button" data-select-item="${escapeHTML(item.id)}">
+            <span class="item-select-indicator">${selected ? "✓" : "＋"}</span>
+            <span class="item-name">
+              ${escapeHTML(item.name)}
+              <span class="item-meta">累計 ${formatMinutes(minutes)}</span>
+            </span>
+          </button>
+          <button class="icon-button" type="button" data-delete-item="${escapeHTML(item.id)}" aria-label="項目を削除">×</button>
+        </div>`;
+    }).join("");
+  }
+
+  function selectSubject(id) {
+    if (!subjectById(id)) return;
+
+    if (state.timer.running && state.timer.subjectId !== id) {
+      showToast("タイマーを終了してから科目を変更してください。");
+      return;
+    }
+
+    state.selectedSubjectId = id;
+    state.selectedItemId = null;
     renderSubjects();
-    renderHome();
-    toast("科目を作成しました。");
-  });
+  }
 
-  $("#close-subject").addEventListener("click", () => {
-    $("#subject-detail").hidden = true;
-  });
-
-  $("#add-item").addEventListener("click", () => {
-    if (!selectedSubject) return toast("先に科目を選んでください。");
-    $("#item-form").reset();
-    $("#item-dialog").showModal();
-  });
-
-  $("#item-form").addEventListener("submit", event => {
-    event.preventDefault();
-
-    const name = $("#item-name").value.trim();
-    if (!name || !selectedSubject) return;
-
-    const item = { id: uid(), subjectId: selectedSubject, name };
-    state.items.push(item);
-    selectedItem = item.id;
-
-    persistStudy();
-    $("#item-dialog").close();
-    renderSubjects();
-    renderHome();
-    toast("学習項目を追加しました。");
-  });
-
-  // タイマー
-  function startForItem(id) {
-    const item = state.items.find(i => i.id === id);
+  function selectItem(id) {
+    const item = itemById(id);
     if (!item) return;
 
-    if (elapsed() > 0 &&
-        (timer.itemId !== id || timer.subjectId !== item.subjectId)) {
-      if (!confirm("計測中の時間があります。今の計測を記録せずに切り替えますか？")) return;
-      elapsedBase = 0;
-      running = false;
-      paused = false;
-      startedAt = null;
+    if (state.timer.running &&
+        (state.timer.itemId !== id || state.timer.subjectId !== item.subjectId)) {
+      showToast("タイマーを終了してから学習項目を変更してください。");
+      return;
     }
 
-    selectedSubject = item.subjectId;
-    selectedItem = id;
-    timer.subjectId = item.subjectId;
-    timer.itemId = id;
+    state.selectedSubjectId = item.subjectId;
+    state.selectedItemId = id;
 
-    $("#timer-panel").hidden = false;
+    const timerName = $("#timer-item-name");
+    if (timerName) timerName.textContent = item.name;
 
-    const subject = state.subjects.find(s => s.id === selectedSubject);
-    $("#timer-label").textContent = `${subject?.name || ""} · ${item.name}`;
+    const status = $("#timer-status");
+    if (status) status.textContent = `${subjectName(item.subjectId)}を学習します。`;
 
     renderSubjects();
-    startTimer();
-    $("#timer-panel").scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
-  function updateTimerUI() {
-    $("#timer-display").textContent = timerText(elapsed());
-    $("#timer-start").disabled = running;
-    $("#timer-pause").disabled = !running;
-    $("#timer-finish").disabled = elapsed() < 1;
-    $("#timer-state").textContent = running
-      ? "計測中です。別画面に移動しても時間は進みます。"
-      : paused ? "一時停止中です。" : "開始すると学習時間を計測します。";
-    $("#timer-start").textContent = paused ? "▶ 再開" : "▶ 開始";
+  function addSubject(name, color) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+
+    if (state.subjects.some(subject =>
+      subject.name.toLowerCase() === trimmed.toLowerCase()
+    )) {
+      showToast("同じ名前の科目がすでにあります。");
+      return;
+    }
+
+    const subject = {
+      id: makeId("subject"),
+      name: trimmed,
+      color: color || COLORS[state.subjects.length % COLORS.length]
+    };
+
+    state.subjects.push(subject);
+    state.selectedSubjectId = subject.id;
+    saveAll();
+    renderSubjects();
+    showToast("科目を追加しました。");
+  }
+
+  function deleteSubject(id) {
+    const subject = subjectById(id);
+    if (!subject) return;
+
+    if (!confirm(`「${subject.name}」を削除しますか？\n関連する学習項目と記録も削除されます。`)) {
+      return;
+    }
+
+    const itemIds = state.items
+      .filter(item => item.subjectId === id)
+      .map(item => item.id);
+
+    state.subjects = state.subjects.filter(item => item.id !== id);
+    state.items = state.items.filter(item => item.subjectId !== id);
+    state.records = state.records.filter(record =>
+      record.subjectId !== id && !itemIds.includes(record.itemId)
+    );
+
+    if (state.selectedSubjectId === id) {
+      state.selectedSubjectId = state.subjects[0]?.id ?? null;
+      state.selectedItemId = null;
+    }
+
+    saveAll();
+    renderSubjects();
+    renderRecords();
+    renderHome();
+    showToast("科目を削除しました。");
+  }
+
+  function addItem(name, subjectId) {
+    const trimmed = name.trim();
+    if (!trimmed || !subjectById(subjectId)) return;
+
+    if (state.items.some(item =>
+      item.subjectId === subjectId &&
+      item.name.toLowerCase() === trimmed.toLowerCase()
+    )) {
+      showToast("同じ名前の項目がすでにあります。");
+      return;
+    }
+
+    const item = {
+      id: makeId("item"),
+      subjectId,
+      name: trimmed
+    };
+
+    state.items.push(item);
+    state.selectedSubjectId = subjectId;
+    state.selectedItemId = item.id;
+
+    saveAll();
+    renderSubjects();
+    showToast("学習項目を追加しました。");
+  }
+
+  function deleteItem(id) {
+    const item = itemById(id);
+    if (!item) return;
+
+    if (!confirm(`「${item.name}」を削除しますか？\nこの項目の学習記録も削除されます。`)) {
+      return;
+    }
+
+    state.items = state.items.filter(candidate => candidate.id !== id);
+    state.records = state.records.filter(record => record.itemId !== id);
+
+    if (state.selectedItemId === id) state.selectedItemId = null;
+
+    saveAll();
+    renderSubjects();
+    renderRecords();
+    renderHome();
+    showToast("学習項目を削除しました。");
+  }
+
+  function timerElapsedSeconds() {
+    let seconds = state.timer.elapsedBeforeStart;
+
+    if (state.timer.running && state.timer.startedAt) {
+      seconds += (Date.now() - state.timer.startedAt) / 1000;
+    }
+
+    return Math.max(0, Math.floor(seconds));
+  }
+
+  function updateTimerDisplay() {
+    const display = $("#timer-display");
+    if (display) display.textContent = formatSeconds(timerElapsedSeconds());
+
+    const start = $("#timer-start");
+    const pause = $("#timer-pause");
+    const stop = $("#timer-stop");
+
+    if (start) start.disabled = state.timer.running;
+    if (pause) pause.disabled = !state.timer.running;
+    if (stop) stop.disabled =
+      state.timer.elapsedBeforeStart <= 0 && !state.timer.running;
+
+    const item = itemById(state.timer.itemId || state.selectedItemId);
+    const title = $("#timer-item-name");
+
+    if (title && !state.timer.running && item) title.textContent = item.name;
   }
 
   function startTimer() {
-    if (running) return;
-    if (!timer.itemId) return toast("学習項目を選んでください。");
+    if (state.timer.running) return;
 
-    running = true;
-    paused = false;
-    startedAt = Date.now();
-    persistTimer();
+    const subjectId = state.selectedSubjectId;
+    const itemId = state.selectedItemId;
 
-    if (tick) clearInterval(tick);
-    tick = setInterval(() => {
-      updateTimerUI();
-      persistTimer();
-    }, 500);
+    if (!subjectById(subjectId)) {
+      showToast("先に科目を選択してください。");
+      return;
+    }
 
-    updateTimerUI();
+    if (!itemById(itemId)) {
+      showToast("先に学習項目を選択してください。");
+      return;
+    }
+
+    state.timer.subjectId = subjectId;
+    state.timer.itemId = itemId;
+    state.timer.startedAt = Date.now();
+    state.timer.running = true;
+
+    const status = $("#timer-status");
+    if (status) status.textContent = "学習中… 終了すると記録されます。";
+
+    clearInterval(state.timer.interval);
+    state.timer.interval = setInterval(updateTimerDisplay, 250);
+    updateTimerDisplay();
   }
 
   function pauseTimer() {
-    if (!running) return;
+    if (!state.timer.running) return;
 
-    elapsedBase = elapsed();
-    running = false;
-    paused = true;
-    startedAt = null;
+    state.timer.elapsedBeforeStart +=
+      (Date.now() - state.timer.startedAt) / 1000;
 
-    if (tick) clearInterval(tick);
-    tick = null;
+    state.timer.startedAt = null;
+    state.timer.running = false;
+    clearInterval(state.timer.interval);
+    state.timer.interval = null;
 
-    persistTimer();
-    updateTimerUI();
+    const status = $("#timer-status");
+    if (status) status.textContent = "一時停止中";
+
+    updateTimerDisplay();
   }
 
-  function finishTimer() {
-    const seconds = Math.floor(elapsed());
-    if (seconds < 1) return toast("記録できる時間がありません。");
+  function resetTimer() {
+    clearInterval(state.timer.interval);
 
-    const subject = state.subjects.find(s => s.id === timer.subjectId);
-    const item = state.items.find(i => i.id === timer.itemId);
+    state.timer.running = false;
+    state.timer.startedAt = null;
+    state.timer.elapsedBeforeStart = 0;
+    state.timer.interval = null;
+    state.timer.subjectId = null;
+    state.timer.itemId = null;
 
-    state.records.push({
-      id: uid(),
-      subject: subject?.name || "未分類",
-      item: item?.name || "学習",
+    updateTimerDisplay();
+  }
+
+  function stopTimer() {
+    const seconds = timerElapsedSeconds();
+    const subjectId = state.timer.subjectId;
+    const itemId = state.timer.itemId;
+
+    if (!subjectId || !itemId || seconds < 1) {
+      resetTimer();
+      showToast("記録できる学習時間がありません。");
+      return;
+    }
+
+    const minutes = Math.round(seconds / 60);
+
+    if (minutes < 1) {
+      if (!confirm("学習時間が1分未満です。1分として保存しますか？")) {
+        resetTimer();
+        return;
+      }
+    }
+
+    const saved = addStudyRecord({
+      subjectId,
+      itemId,
       date: todayKey(),
-      seconds,
-      createdAt: Date.now(),
-      note: ""
-    });
+      minutes: Math.max(1, minutes),
+      note: "タイマーで記録"
+    }, false);
 
-    elapsedBase = 0;
-    running = false;
-    paused = false;
-    startedAt = null;
+    resetTimer();
 
-    if (tick) clearInterval(tick);
-    tick = null;
+    if (saved) {
+      const status = $("#timer-status");
+      if (status) status.textContent = "学習記録を保存しました。";
 
-    persistStudy();
-    persistTimer();
-    updateTimerUI();
-    renderSubjects();
-    renderHome();
-    renderRecords();
-    toast(`${duration(seconds)}を記録しました。`);
+      renderSubjects();
+      renderRecords();
+      renderHome();
+      showToast(`学習時間 ${formatMinutes(Math.max(1, minutes))} を保存しました。`);
+    }
   }
 
-  $("#timer-start").addEventListener("click", startTimer);
-  $("#timer-pause").addEventListener("click", pauseTimer);
-  $("#timer-finish").addEventListener("click", finishTimer);
-
-  // 手動学習記録
-  function updateManualSubjects() {
-    const select = $("#manual-subject");
-    if (!select) return;
-
-    const previous = select.value;
-    select.innerHTML = '<option value="">科目を選択</option>' +
-      state.subjects.map(s =>
-        `<option value="${esc(s.id)}">${esc(s.name)}</option>`
-      ).join("");
-
-    if (state.subjects.some(s => s.id === previous)) select.value = previous;
-    else if (selectedSubject) select.value = selectedSubject;
-
-    updateManualItems();
-  }
-
-  function updateManualItems() {
-    const subjectSelect = $("#manual-subject");
-    const itemSelect = $("#manual-item");
-    if (!subjectSelect || !itemSelect) return;
-
-    const subjectId = subjectSelect.value || selectedSubject;
-    const previous = itemSelect.value;
-
-    itemSelect.innerHTML = '<option value="">項目を選択（任意）</option>' +
-      state.items.filter(i => i.subjectId === subjectId).map(i =>
-        `<option value="${esc(i.id)}">${esc(i.name)}</option>`
-      ).join("");
-
-    if (state.items.some(i => i.id === previous)) itemSelect.value = previous;
-  }
-
-  $("#manual-subject")?.addEventListener("change", updateManualItems);
-
-  if ($("#manual-date")) $("#manual-date").value = todayKey();
-
-  $("#manual-time-form")?.addEventListener("submit", event => {
-    event.preventDefault();
-
-    const subjectId = $("#manual-subject").value;
-    const itemId = $("#manual-item").value;
-    const minutes = Number($("#manual-minutes").value);
-    const date = $("#manual-date").value || todayKey();
-    const note = $("#manual-note").value.trim();
-
-    if (!subjectId) return toast("科目を選択してください。");
-    if (!Number.isFinite(minutes) || minutes < 1) {
-      return toast("学習時間を1分以上で入力してください。");
+  function addStudyRecord(record, shouldRender = true) {
+    const subject = subjectById(record.subjectId);
+    if (!subject) {
+      showToast("科目を選択してください。");
+      return false;
     }
 
-    const subject = state.subjects.find(s => s.id === subjectId);
-    if (!subject) return toast("科目が見つかりません。");
-
-    let item = state.items.find(i => i.id === itemId);
-
-    if (!item && itemId) {
-      return toast("学習項目が見つかりません。");
+    const minutes = Number(record.minutes);
+    if (!Number.isFinite(minutes) || minutes <= 0) {
+      showToast("1分以上の学習時間を入力してください。");
+      return false;
     }
 
-    if (!item) {
-      item = { id: uid(), subjectId, name: "手動記録" };
-      state.items.push(item);
-    }
+    const itemId = record.itemId && itemById(record.itemId)
+      ? record.itemId
+      : "";
 
     state.records.push({
-      id: uid(),
-      subject: subject.name,
-      item: item.name,
-      date,
-      seconds: Math.round(minutes * 60),
-      createdAt: Date.now(),
-      note
+      id: makeId("record"),
+      subjectId: subject.id,
+      itemId,
+      date: record.date || todayKey(),
+      minutes: Math.round(minutes),
+      note: String(record.note || "").trim(),
+      createdAt: Date.now()
     });
 
-    persistStudy();
-    event.target.reset();
-    $("#manual-date").value = todayKey();
+    saveAll();
 
-    renderSubjects();
-    renderHome();
-    renderRecords();
-    toast(`${minutes}分を学習記録に追加しました。`);
-  });
-
-  // グラフ・期間別集計
-  function currentRange() {
-    const today = localDate(todayKey());
-
-    if (period === "day") {
-      return {
-        start: todayKey(),
-        end: todayKey(),
-        title: "今日",
-        labels: ["今日"],
-        dates: [todayKey()]
-      };
+    if (shouldRender) {
+      renderSubjects();
+      renderRecords();
+      renderHome();
     }
 
-    if (period === "week") {
-      const monday = dayOffset(today, -((today.getDay() + 6) % 7));
-      const dates = Array.from({ length: 7 }, (_, i) =>
-        todayKey(dayOffset(monday, i))
-      );
-
-      return {
-        start: dates[0],
-        end: dates[6],
-        title: "今週（月〜日）",
-        labels: dates.map(k => {
-          const d = localDate(k);
-          return `${d.getMonth() + 1}/${d.getDate()}`;
-        }),
-        dates
-      };
-    }
-
-    const start = new Date(today.getFullYear(), today.getMonth(), 1);
-    const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-    const dates = Array.from({ length: end.getDate() }, (_, i) =>
-      todayKey(dayOffset(start, i))
-    );
-
-    return {
-      start: dates[0],
-      end: dates[dates.length - 1],
-      title: `${today.getFullYear()}年${today.getMonth() + 1}月`,
-      labels: dates.map(k => String(localDate(k).getDate())),
-      dates
-    };
+    return true;
   }
 
   function renderRecords() {
-    const range = currentRange();
-    const records = recordsForDates(range.start, range.end);
-    const seconds = total(records);
-
-    $("#period-title").textContent = range.title;
-    $("#period-total").textContent = duration(seconds);
-
-    $$(".segmented button").forEach(button =>
-      button.classList.toggle("active", button.dataset.period === period)
-    );
-
-    drawBars(range, records);
-    drawDonut(records);
-
-    const bySubject = {};
-    records.forEach(r => {
-      bySubject[r.subject] = (bySubject[r.subject] || 0) + r.seconds;
-    });
-
-    const entries = Object.entries(bySubject).sort((a, b) => b[1] - a[1]);
-
-    $("#subject-breakdown").innerHTML = entries.length
-      ? entries.map(([name, value], i) => `
-        <div class="break-row">
-          <div>
-            <span class="legend-dot" style="background:${COLORS[i % COLORS.length]}"></span>
-            <b>${esc(name)}</b><strong>${duration(value)}</strong>
-          </div>
-          <div class="progress-track">
-            <span style="width:${seconds ? value / seconds * 100 : 0}%;background:${COLORS[i % COLORS.length]}"></span>
-          </div>
-        </div>`).join("")
-      : empty("この期間の学習記録はありません。");
-
-    $("#period-records").innerHTML = records.length
-      ? [...records].sort((a, b) =>
-          b.date.localeCompare(a.date) || b.createdAt - a.createdAt
-        ).map(recordHTML).join("")
-      : empty("この期間の記録はまだありません。");
+    renderChart();
+    renderBreakdown();
+    renderTargetProgress();
+    renderRecordList();
   }
 
-  $$(".segmented button").forEach(button => {
-    button.addEventListener("click", () => {
-      period = button.dataset.period;
-      renderRecords();
-    });
-  });
+  function getChartBuckets() {
+    const today = parseDate(todayKey());
+    const buckets = [];
 
-  function drawBars(range, records) {
+    if (state.chartPeriod === "week") {
+      const start = getWeekStart(today);
+      for (let i = 0; i < 7; i++) {
+        const date = addDays(start, i);
+        const key = dateKey(date);
+        buckets.push({
+          key,
+          label: `${date.getMonth() + 1}/${date.getDate()}`,
+          minutes: totalMinutes(getRecordsForDate(key))
+        });
+      }
+    } else if (state.chartPeriod === "month") {
+      for (let i = 29; i >= 0; i--) {
+        const date = addDays(today, -i);
+        const key = dateKey(date);
+        buckets.push({
+          key,
+          label: `${date.getMonth() + 1}/${date.getDate()}`,
+          minutes: totalMinutes(getRecordsForDate(key))
+        });
+      }
+    } else {
+      for (let i = 11; i >= 0; i--) {
+        const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        const year = date.getFullYear();
+        const month = date.getMonth();
+
+        const minutes = totalMinutes(state.records.filter(record => {
+          const d = parseDate(record.date);
+          return d.getFullYear() === year && d.getMonth() === month;
+        }));
+
+        buckets.push({
+          key: `${year}-${String(month + 1).padStart(2, "0")}`,
+          label: `${month + 1}月`,
+          minutes
+        });
+      }
+    }
+
+    return buckets;
+  }
+
+  function renderChart() {
     const canvas = $("#bar-chart");
     if (!canvas) return;
 
-    const ctx = canvas.getContext("2d");
     const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const width = Math.max(280, rect.width);
+    const width = Math.max(280, Math.floor(rect.width || canvas.parentElement?.clientWidth || 320));
     const height = 220;
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
 
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    canvas.style.height = `${height}px`;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, width, height);
 
-    const values = range.dates.map(date =>
-      total(records.filter(r => r.date === date))
-    );
+    const buckets = getChartBuckets();
+    const left = 38;
+    const right = 10;
+    const top = 15;
+    const bottom = 39;
+    const plotWidth = width - left - right;
+    const plotHeight = height - top - bottom;
 
-    const max = Math.max(60, ...values);
-    const pad = { l: 8, r: 8, t: 18, b: 30 };
-    const plotW = width - pad.l - pad.r;
-    const plotH = height - pad.t - pad.b;
+    const maxValue = Math.max(60, ...buckets.map(bucket => bucket.minutes));
+    const step = Math.pow(10, Math.floor(Math.log10(maxValue)));
+    const gridMax = Math.ceil(maxValue / step) * step;
+    const gridStep = gridMax / 4;
 
-    for (let i = 0; i < 4; i++) {
-      const y = pad.t + plotH * i / 3;
-      ctx.strokeStyle = "rgba(160,180,230,.15)";
+    ctx.font = "10px sans-serif";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+
+    for (let i = 0; i <= 4; i++) {
+      const y = top + plotHeight - (plotHeight * i / 4);
+
+      ctx.strokeStyle = "rgba(147, 166, 208, 0.15)";
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(pad.l, y);
-      ctx.lineTo(width - pad.r, y);
+      ctx.moveTo(left, y);
+      ctx.lineTo(width - right, y);
       ctx.stroke();
+
+      ctx.fillStyle = "#9baac8";
+      ctx.fillText(String(Math.round(gridStep * i)), left - 7, y);
     }
 
-    const step = plotW / Math.max(1, values.length);
-    const barW = Math.max(3, Math.min(24, step * 0.55));
+    const slot = plotWidth / Math.max(1, buckets.length);
+    const barWidth = Math.max(2, Math.min(18, slot * 0.62));
 
-    values.forEach((value, i) => {
-      const barH = value / max * (plotH - 5);
-      const x = pad.l + i * step + (step - barW) / 2;
-      const y = pad.t + plotH - barH;
+    buckets.forEach((bucket, index) => {
+      const x = left + index * slot + (slot - barWidth) / 2;
+      const barHeight = bucket.minutes > 0
+        ? Math.max(2, bucket.minutes / gridMax * plotHeight)
+        : 0;
+      const y = top + plotHeight - barHeight;
 
-      const gradient = ctx.createLinearGradient(0, y, 0, pad.t + plotH);
-      gradient.addColorStop(0, COLORS[i % COLORS.length]);
-      gradient.addColorStop(1, "#7168ce");
+      const gradient = ctx.createLinearGradient(0, y, 0, top + plotHeight);
+      gradient.addColorStop(0, "#78e0ed");
+      gradient.addColorStop(1, "#7188ff");
 
       ctx.fillStyle = gradient;
-      ctx.beginPath();
 
-      if (ctx.roundRect) ctx.roundRect(x, y, barW, Math.max(1, barH), 4);
-      else ctx.rect(x, y, barW, Math.max(1, barH));
+      if (barHeight > 0) {
+        const radius = Math.min(5, barWidth / 2, barHeight / 2);
+        ctx.beginPath();
+        ctx.roundRect(x, y, barWidth, barHeight, radius);
+        ctx.fill();
+      }
 
-      ctx.fill();
+      const showLabel = state.chartPeriod !== "month" ||
+        index % 5 === 0 ||
+        index === buckets.length - 1;
 
-      if (values.length <= 7 || i % 5 === 0 || i === values.length - 1) {
-        ctx.fillStyle = "#8998b9";
-        ctx.font = "10px system-ui";
+      if (showLabel) {
+        ctx.fillStyle = "#9baac8";
         ctx.textAlign = "center";
-        ctx.fillText(range.labels[i], x + barW / 2, height - 9);
+        ctx.textBaseline = "top";
+        ctx.fillText(bucket.label, x + barWidth / 2, top + plotHeight + 9);
       }
     });
-  }
 
-  function drawDonut(records) {
-    const config = state.targets[period] || {
-      kind: "time",
-      value: period === "day" ? 120 : period === "week" ? 600 : 2400,
-      unit: "minutes"
-    };
-
-    $("#target-kind").value = config.kind;
-    $("#target-value").value = config.value;
-    $("#target-unit").value = config.unit || "minutes";
-    $("#target-unit-label").style.display =
-      config.kind === "time" ? "grid" : "none";
-
-    const actual = config.kind === "time"
-      ? total(records) / (config.unit === "hours" ? 3600 : 60)
-      : new Set(records.map(r => `${r.subject}|${r.item}`)).size;
-
-    const target = Math.max(1, Number(config.value) || 1);
-    const pct = Math.min(100, Math.round(actual / target * 100));
-
-    $("#donut").style.background =
-      `conic-gradient(#91adff ${pct * 3.6}deg, rgba(140,157,196,.16) 0deg)`;
-
-    $("#donut-percent").textContent = pct + "%";
-    $("#target-progress-text").textContent =
-      `${Math.round(actual * 10) / 10} / ${target} ` +
-      (config.kind === "time"
-        ? (config.unit === "hours" ? "時間" : "分")
-        : "項目");
-
-    $("#target-explain").textContent = pct >= 100
-      ? "目標達成！設定した目標をクリアしました。"
-      : `あと ${Math.max(0, Math.ceil(target - actual))}` +
-        (config.kind === "time"
-          ? (config.unit === "hours" ? "時間" : "分")
-          : "項目") + "で目標達成です。";
-  }
-
-  $("#target-kind").addEventListener("change", () => {
-    $("#target-unit-label").style.display =
-      $("#target-kind").value === "time" ? "grid" : "none";
-  });
-
-  $("#save-target").addEventListener("click", () => {
-    const value = Number($("#target-value").value);
-
-    if (!Number.isFinite(value) || value < 1) {
-      return toast("目標値は1以上にしてください。");
+    if (state.chartPeriod === "year") {
+      ctx.fillStyle = "#9baac8";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText("分", 5, 1);
     }
-
-    state.targets[period] = {
-      kind: $("#target-kind").value,
-      value,
-      unit: $("#target-unit").value
-    };
-
-    persistStudy();
-    renderRecords();
-    renderHome();
-    toast("この期間の目標を保存しました。");
-  });
-
-  window.addEventListener("resize", () => {
-    if (!$("#view-records").hidden) renderRecords();
-  });
-
-  // 目標マップ
-  let goals = read(KEYS.goals, null);
-
-  if (!Array.isArray(goals) || !goals.length) {
-    goals = [
-      {
-        id: uid(), name: "最終目標", note: "ここに叶えたい目標を書く",
-        parentId: null, final: true, type: "final", done: false, dueDate: ""
-      },
-      {
-        id: uid(), name: "中間目標", note: "最初の大きな一歩",
-        parentId: null, final: false, type: "intermediate", done: false, dueDate: ""
-      }
-    ];
   }
 
-  if (!goals.some(g => g.final)) goals[0].final = true;
+  function renderBreakdown() {
+    const container = $("#subject-breakdown");
+    if (!container) return;
 
-  let selectedGoalId = goals.find(g => g.final)?.id || goals[0]?.id;
-  let editingGoalId = null;
-  let pan = { x: 0, y: 0, scale: 1 };
-  let dragging = null;
-  let pinchStart = null;
-  let pointers = new Map();
+    const grouped = new Map();
 
-  function persistGoals() {
-    save(KEYS.goals, goals);
-  }
-
-  function goalProgress(goal) {
-    const children = goals.filter(g => g.parentId === goal.id);
-    if (!children.length) return goal.done ? 100 : 0;
-    return Math.round(children.reduce((sum, g) => sum + goalProgress(g), 0) / children.length);
-  }
-
-  function renderGoals() {
-    const svg = $("#goal-world");
-    if (!svg) return;
-
-    svg.replaceChildren();
-
-    const root = goals.find(g => g.final) || goals[0];
-    if (!root) return;
-
-    const positions = new Map([[root.id, { x: 500, y: 100 }]]);
-    const children = id => goals.filter(g => g.parentId === id);
-
-    function place(parent, depth) {
-      const kids = children(parent.id);
-      kids.forEach((goal, index) => {
-        const x = Math.max(120, Math.min(
-          880,
-          (positions.get(parent.id)?.x || 500) +
-          (index - (kids.length - 1) / 2) * (depth === 1 ? 270 : 180)
-        ));
-
-        positions.set(goal.id, { x, y: 100 + depth * 165 });
-        place(goal, depth + 1);
+    if (state.breakdownMode === "subject") {
+      state.subjects.forEach(subject => {
+        grouped.set(subject.id, {
+          id: subject.id,
+          name: subject.name,
+          color: subject.color,
+          minutes: 0
+        });
       });
-    }
 
-    place(root, 1);
-
-    goals.filter(g => !positions.has(g.id)).forEach((goal, i) => {
-      positions.set(goal.id, { x: 150 + (i % 4) * 230, y: 430 + Math.floor(i / 4) * 130 });
-    });
-
-    const ns = "http://www.w3.org/2000/svg";
-
-    goals.forEach(goal => {
-      if (!goal.parentId || !positions.has(goal.parentId)) return;
-
-      const a = positions.get(goal.parentId);
-      const b = positions.get(goal.id);
-      const path = document.createElementNS(ns, "path");
-
-      path.setAttribute("d",
-        `M ${a.x} ${a.y + 38} C ${a.x} ${a.y + 85}, ${b.x} ${b.y - 60}, ${b.x} ${b.y - 38}`
-      );
-      path.setAttribute("class", "goal-branch");
-      svg.append(path);
-    });
-
-    goals.forEach(goal => {
-      const p = positions.get(goal.id);
-      const group = document.createElementNS(ns, "g");
-
-      group.setAttribute("transform", `translate(${p.x - 105},${p.y - 38})`);
-      group.setAttribute("class",
-        `goal-node ${goal.id === selectedGoalId ? "chosen" : ""} ${goal.final ? "final" : ""}`
-      );
-      group.style.cursor = "pointer";
-
-      const rect = document.createElementNS(ns, "rect");
-      rect.setAttribute("width", "210");
-      rect.setAttribute("height", "76");
-      rect.setAttribute("rx", goal.final ? "15" : "12");
-      group.append(rect);
-
-      const text = document.createElementNS(ns, "text");
-      text.setAttribute("x", "105");
-      text.setAttribute("y", "31");
-      text.setAttribute("text-anchor", "middle");
-      text.textContent = goal.name.length > 15
-        ? goal.name.slice(0, 14) + "…"
-        : goal.name;
-      group.append(text);
-
-      const sub = document.createElementNS(ns, "text");
-      sub.setAttribute("x", "105");
-      sub.setAttribute("y", "55");
-      sub.setAttribute("text-anchor", "middle");
-      sub.setAttribute("class", "goal-node-sub");
-      sub.textContent = `${goal.done ? "✓ 達成" : "目標"} · ${goalProgress(goal)}%`;
-      group.append(sub);
-
-      group.addEventListener("click", () => selectGoal(goal.id));
-      svg.append(group);
-    });
-
-    const moon = document.createElementNS(ns, "g");
-    const circle = document.createElementNS(ns, "circle");
-    circle.setAttribute("cx", "500");
-    circle.setAttribute("cy", "635");
-    circle.setAttribute("r", "28");
-    circle.setAttribute("fill", "#dce7ff");
-    circle.setAttribute("stroke", "#a9bfff");
-    circle.setAttribute("stroke-width", "2");
-    moon.append(circle);
-
-    const label = document.createElementNS(ns, "text");
-    label.setAttribute("x", "500");
-    label.setAttribute("y", "680");
-    label.setAttribute("text-anchor", "middle");
-    label.setAttribute("fill", "#dce7ff");
-    label.setAttribute("font-size", "15");
-    label.textContent = "☾ MOON · 目標達成";
-    moon.append(label);
-    svg.append(moon);
-
-    svg.setAttribute("transform", `translate(${pan.x} ${pan.y}) scale(${pan.scale})`);
-    selectGoal(goals.some(g => g.id === selectedGoalId) ? selectedGoalId : root.id, false);
-  }
-
-  function selectGoal(id, redraw = true) {
-    selectedGoalId = id;
-    const goal = goals.find(g => g.id === id);
-    if (!goal) return;
-
-    $("#selected-goal-title").textContent = goal.name;
-    $("#selected-goal-desc").textContent = goal.note || "メモはありません。";
-    $("#selected-goal-progress-label").textContent = `達成率 ${goalProgress(goal)}%`;
-    $("#selected-goal-progress-bar").style.width = `${goalProgress(goal)}%`;
-    $("#selected-goal-due").textContent = goal.dueDate
-      ? `期限：${goal.dueDate}`
-      : "期限未設定";
-    $("#selected-goal-progress-note").textContent =
-      goal.done ? "この目標は達成済みです。" : "子目標の達成状況から自動計算します。";
-    $("#toggle-goal-done").textContent = goal.done ? "↶ 未達成に戻す" : "✓ 達成にする";
-
-    if (redraw) renderGoals();
-    else {
-      $$(".goal-node").forEach(node => {
-        node.classList.toggle("chosen",
-          node.querySelector("text")?.textContent ===
-          (goal.name.length > 15 ? goal.name.slice(0, 14) + "…" : goal.name)
-        );
-      });
-    }
-  }
-
-  function openGoalDialog(goal = null, parentId = null) {
-    editingGoalId = goal?.id || null;
-
-    $("#goal-dialog-title").textContent = goal ? "目標を編集" : "目標を追加";
-    $("#goal-name").value = goal?.name || "";
-    $("#goal-note").value = goal?.note || "";
-    $("#goal-type").value = goal?.type || (goal?.final ? "final" : "intermediate");
-    $("#goal-due-date").value = goal?.dueDate || "";
-
-    const parentSelect = $("#goal-parent");
-    parentSelect.innerHTML = '<option value="">親目標なし</option>' +
-      goals.filter(g => g.id !== goal?.id).map(g =>
-        `<option value="${esc(g.id)}">${esc(g.name)}</option>`
-      ).join("");
-
-    parentSelect.value = parentId || goal?.parentId || "";
-    $("#goal-dialog").showModal();
-  }
-
-  $("#add-goal").addEventListener("click", () => openGoalDialog());
-  $("#add-child-goal").addEventListener("click", () => openGoalDialog(null, selectedGoalId));
-
-  $("#edit-goal").addEventListener("click", () => {
-    const goal = goals.find(g => g.id === selectedGoalId);
-    if (goal) openGoalDialog(goal);
-  });
-
-  $("#toggle-goal-done").addEventListener("click", () => {
-    const goal = goals.find(g => g.id === selectedGoalId);
-    if (!goal) return;
-    goal.done = !goal.done;
-    persistGoals();
-    renderGoals();
-    toast(goal.done ? "目標を達成済みにしました。" : "未達成に戻しました。");
-  });
-
-  $("#goal-form").addEventListener("submit", event => {
-    event.preventDefault();
-
-    const name = $("#goal-name").value.trim();
-    if (!name) return;
-
-    const type = $("#goal-type").value;
-    const parentId = $("#goal-parent").value || null;
-    const dueDate = $("#goal-due-date").value;
-    const note = $("#goal-note").value.trim();
-
-    if (editingGoalId && parentId === editingGoalId) {
-      return toast("自分自身を親目標にはできません。");
-    }
-
-    if (type === "final") goals.forEach(g => {
-      g.final = false;
-      if (g.type === "final") g.type = "intermediate";
-    });
-
-    if (editingGoalId) {
-      const goal = goals.find(g => g.id === editingGoalId);
-      if (!goal) return;
-
-      Object.assign(goal, {
-        name, note, parentId, dueDate,
-        type, final: type === "final"
+      state.records.forEach(record => {
+        if (!grouped.has(record.subjectId)) {
+          grouped.set(record.subjectId, {
+            id: record.subjectId,
+            name: "未分類",
+            color: "#8998b9",
+            minutes: 0
+          });
+        }
+        grouped.get(record.subjectId).minutes += record.minutes;
       });
     } else {
-      const goal = {
-        id: uid(), name, note, parentId, dueDate,
-        type, final: type === "final", done: false
-      };
-      goals.push(goal);
-      selectedGoalId = goal.id;
+      state.items.forEach(item => {
+        grouped.set(item.id, {
+          id: item.id,
+          name: `${subjectName(item.subjectId)} / ${item.name}`,
+          color: subjectById(item.subjectId)?.color || "#8998b9",
+          minutes: 0
+        });
+      });
+
+      state.records.forEach(record => {
+        if (!record.itemId) return;
+
+        if (!grouped.has(record.itemId)) {
+          grouped.set(record.itemId, {
+            id: record.itemId,
+            name: "削除済み項目",
+            color: "#8998b9",
+            minutes: 0
+          });
+        }
+
+        grouped.get(record.itemId).minutes += record.minutes;
+      });
     }
 
-    if (!goals.some(g => g.final)) goals[0].final = true;
+    const values = [...grouped.values()].sort((a, b) => b.minutes - a.minutes);
+    const max = Math.max(1, ...values.map(value => value.minutes));
 
-    persistGoals();
-    $("#goal-dialog").close();
-    renderGoals();
-    toast("目標を保存しました。");
-  });
-
-  $("#delete-goal").addEventListener("click", () => {
-    const goal = goals.find(g => g.id === selectedGoalId);
-    if (!goal) return;
-
-    if (goal.final && goals.length > 1) {
-      return toast("先に別の目標を最終目標にしてください。");
-    }
-
-    if (!confirm(`「${goal.name}」を削除しますか？`)) return;
-
-    goals = goals.filter(g => g.id !== goal.id);
-    goals.forEach(g => {
-      if (g.parentId === goal.id) g.parentId = null;
-    });
-
-    if (!goals.some(g => g.final) && goals.length) goals[0].final = true;
-
-    selectedGoalId = goals.find(g => g.final)?.id || goals[0]?.id || null;
-    persistGoals();
-    renderGoals();
-  });
-
-  function zoom(factor) {
-    pan.scale = Math.max(0.45, Math.min(2.2, pan.scale * factor));
-    $("#goal-world").setAttribute("transform",
-      `translate(${pan.x} ${pan.y}) scale(${pan.scale})`
-    );
-  }
-
-  $("#zoom-in").addEventListener("click", () => zoom(1.15));
-  $("#zoom-out").addEventListener("click", () => zoom(1 / 1.15));
-
-  $("#reset-map").addEventListener("click", () => {
-    pan = { x: 0, y: 0, scale: 1 };
-    renderGoals();
-  });
-
-  const goalCanvas = $("#goal-canvas");
-
-  goalCanvas.addEventListener("pointerdown", event => {
-    if (event.target.closest(".goal-node")) return;
-
-    goalCanvas.setPointerCapture(event.pointerId);
-    dragging = {
-      x: event.clientX,
-      y: event.clientY,
-      px: pan.x,
-      py: pan.y
-    };
-  });
-
-  goalCanvas.addEventListener("pointermove", event => {
-    if (!dragging) return;
-
-    pan.x = dragging.px + event.clientX - dragging.x;
-    pan.y = dragging.py + event.clientY - dragging.y;
-
-    $("#goal-world").setAttribute("transform",
-      `translate(${pan.x} ${pan.y}) scale(${pan.scale})`
-    );
-  });
-
-  ["pointerup", "pointercancel", "lostpointercapture"].forEach(name => {
-    goalCanvas.addEventListener(name, () => dragging = null);
-  });
-
-  // カウントダウン
-  let countdowns = read(KEYS.countdowns, []);
-  if (!Array.isArray(countdowns)) countdowns = [];
-
-  function daysUntil(dateKey) {
-    const target = localDate(dateKey);
-    const today = localDate(todayKey());
-    return Math.round((target - today) / 86400000);
-  }
-
-  function renderCountdowns() {
-    const list = $("#countdown-list");
-    if (!list) return;
-
-    if (!countdowns.length) {
-      list.innerHTML = empty("受験・テスト・提出日などを登録できます。");
+    if (!values.length || values.every(value => value.minutes === 0)) {
+      container.innerHTML = '<p class="empty-state">学習記録を追加すると、ここに内訳が表示されます。</p>';
       return;
     }
 
-    countdowns.sort((a, b) => a.date.localeCompare(b.date));
-
-    list.innerHTML = countdowns.map(item => {
-      const days = daysUntil(item.date);
-      const label = days > 0
-        ? `あと ${days} 日`
-        : days === 0 ? "今日！" : `${Math.abs(days)} 日経過`;
-
-      return `<article class="countdown-item">
-        <div class="countdown-copy">
-          <strong>${esc(item.name)}</strong>
-          <small>${esc(item.date.replaceAll("-", "/"))}</small>
+    container.innerHTML = values.filter(value => value.minutes > 0).map(value => `
+      <div class="breakdown-row">
+        <div class="breakdown-row-header">
+          <strong>
+            <span class="subject-color-dot" style="background:${escapeHTML(value.color)}"></span>
+            ${escapeHTML(value.name)}
+          </strong>
+          <span class="breakdown-time">${formatMinutes(value.minutes)}</span>
         </div>
-        <div class="countdown-number">${label}</div>
-        <button type="button" class="countdown-delete" data-countdown-delete="${esc(item.id)}" aria-label="削除">×</button>
-      </article>`;
-    }).join("");
-
-    $$("[data-countdown-delete]").forEach(button => {
-      button.addEventListener("click", () => {
-        const item = countdowns.find(c => c.id === button.dataset.countdownDelete);
-        if (!item || !confirm(`「${item.name}」を削除しますか？`)) return;
-
-        countdowns = countdowns.filter(c => c.id !== item.id);
-        save(KEYS.countdowns, countdowns);
-        renderCountdowns();
-      });
-    });
+        <div class="progress-track">
+          <div class="progress-fill" style="width:${Math.min(100, value.minutes / max * 100)}%;background:${escapeHTML(value.color)}"></div>
+        </div>
+      </div>`).join("");
   }
 
-  $("#add-countdown").addEventListener("click", () => {
-    $("#countdown-id").value = "";
-    $("#countdown-title").value = "";
-    $("#countdown-date").value = todayKey();
-    $("#countdown-note").value = "";
-    $("#countdown-dialog-title").textContent = "イベントを追加";
-    $("#delete-countdown").hidden = true;
-    $("#countdown-dialog").showModal();
-  });
+  function renderTargetProgress() {
+    const container = $("#target-progress");
+    if (!container) return;
 
-  $("#countdown-form").addEventListener("submit", event => {
-    event.preventDefault();
+    const dailyTarget = Math.max(1, Number(state.settings.dailyTarget) || 60);
+    const weeklyTarget = Math.max(1, Number(state.settings.weeklyTarget) || 420);
 
-    const id = $("#countdown-id").value;
-    const name = $("#countdown-title").value.trim();
-    const date = $("#countdown-date").value;
-    const note = $("#countdown-note").value.trim();
+    const daily = getTodayMinutes();
+    const weekly = totalMinutes(getWeekRecords());
 
-    if (!name || !date) return toast("イベント名と日付を入力してください。");
+    container.innerHTML = `
+      <div>
+        <strong>今日：${formatMinutes(daily)} / ${formatMinutes(dailyTarget)}</strong>
+        <div class="progress-track">
+          <div class="progress-fill" style="width:${Math.min(100, daily / dailyTarget * 100)}%"></div>
+        </div>
+      </div>
+      <div>
+        <strong>今週：${formatMinutes(weekly)} / ${formatMinutes(weeklyTarget)}</strong>
+        <div class="progress-track">
+          <div class="progress-fill" style="width:${Math.min(100, weekly / weeklyTarget * 100)}%;background:linear-gradient(90deg,#c5a2ff,#8aa2ff)"></div>
+        </div>
+      </div>`;
+  }
 
-    const item = { id: id || uid(), name, date, note };
-    const index = countdowns.findIndex(c => c.id === item.id);
+  function renderRecordList() {
+    const container = $("#period-records");
+    if (!container) return;
 
-    if (index < 0) countdowns.push(item);
-    else countdowns[index] = item;
+    const records = [...state.records].sort((a, b) =>
+      String(b.date).localeCompare(String(a.date)) ||
+      Number(b.createdAt || 0) - Number(a.createdAt || 0)
+    );
 
-    save(KEYS.countdowns, countdowns);
-    $("#countdown-dialog").close();
-    renderCountdowns();
-    toast("カウントダウンを保存しました。");
-  });
+    if (!records.length) {
+      container.innerHTML = '<p class="empty-state">まだ学習記録がありません。</p>';
+      return;
+    }
 
-  $("#delete-countdown").addEventListener("click", () => {
-    const id = $("#countdown-id").value;
-    if (!id || !confirm("このイベントを削除しますか？")) return;
+    container.innerHTML = records.slice(0, 100).map(record => `
+      <article class="record-card">
+        <div class="record-card-header">
+          <div>
+            <strong>${escapeHTML(subjectName(record.subjectId))}</strong>
+            <small>${escapeHTML(itemName(record.itemId))} · ${escapeHTML(formatDate(record.date, { weekday: true }))}</small>
+          </div>
+          <div class="breakdown-time">${formatMinutes(record.minutes)}</div>
+        </div>
+        ${record.note ? `<p>${escapeHTML(record.note)}</p>` : ""}
+        <div class="button-row">
+          <button class="secondary-button" type="button" data-delete-record="${escapeHTML(record.id)}">この記録を削除</button>
+        </div>
+      </article>`).join("");
+  }
 
-    countdowns = countdowns.filter(c => c.id !== id);
-    save(KEYS.countdowns, countdowns);
-    $("#countdown-dialog").close();
-    renderCountdowns();
-  });
+  function deleteRecord(id) {
+    const record = state.records.find(item => item.id === id);
+    if (!record) return;
 
-  // カレンダーとタスク
-  const oldCalendar = read(KEYS.calendar, {});
-  const calendar = {
-    events: Array.isArray(oldCalendar.events) ? oldCalendar.events : [],
-    tasks: Array.isArray(oldCalendar.tasks) ? oldCalendar.tasks : []
-  };
+    if (!confirm("この学習記録を削除しますか？")) return;
 
-  let calDate = new Date();
-  let selectedDate = todayKey();
-
-  const saveCalendar = () => save(KEYS.calendar, calendar);
-
-  const dateText = key => {
-    const date = localDate(key);
-    return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}（${"日月火水木金土"[date.getDay()]}）`;
-  };
-
-  const dayEvents = key => calendar.events.filter(event => event.date === key);
+    state.records = state.records.filter(item => item.id !== id);
+    saveAll();
+    renderRecords();
+    renderSubjects();
+    renderHome();
+    showToast("学習記録を削除しました。");
+  }
 
   function renderCalendar() {
-    const grid = $("#calendar-grid");
-    if (!grid) return;
-
-    $("#month-title").textContent =
-      `${calDate.getFullYear()}年${calDate.getMonth() + 1}月`;
-
-    grid.replaceChildren();
-
-    // 曜日見出し
-    ["日", "月", "火", "水", "木", "金", "土"].forEach((name, index) => {
-      const heading = document.createElement("div");
-      heading.className = `calendar-weekday weekday-${index}`;
-      heading.textContent = name;
-      grid.append(heading);
-    });
-
-    const first = new Date(calDate.getFullYear(), calDate.getMonth(), 1);
-    const start = dayOffset(first, -first.getDay());
-
-    for (let i = 0; i < 42; i++) {
-      const date = dayOffset(start, i);
-      const key = todayKey(date);
-      const button = document.createElement("button");
-
-      button.type = "button";
-      button.className = "calendar-day day-cell" +
-        (date.getMonth() !== calDate.getMonth() ? " outside" : "") +
-        (key === todayKey() ? " today" : "") +
-        (key === selectedDate ? " selected" : "");
-
-      const hasEvents = dayEvents(key).length > 0;
-      const hasTasks = calendar.tasks.some(t => t.date === key && !t.completed);
-
-      button.innerHTML = `
-        <span class="day-number">${date.getDate()}</span>
-        <span class="day-markers">
-          ${hasEvents ? '<i class="event-dot"></i>' : ""}
-          ${hasTasks ? '<i class="task-dot"></i>' : ""}
-        </span>`;
-
-      button.addEventListener("click", () => {
-        selectedDate = key;
-        calDate = new Date(date.getFullYear(), date.getMonth(), 1);
-        renderCalendarAll();
-      });
-
-      grid.append(button);
-    }
-  }
-
-  function renderDayItems() {
-    const box = $("#day-items");
-    if (!box) return;
-
-    $("#selected-date-title").textContent = dateText(selectedDate) + " の予定";
-    box.replaceChildren();
-
-    const events = dayEvents(selectedDate).sort((a, b) =>
-      (a.start || "").localeCompare(b.start || "")
-    );
-
-    if (!events.length) {
-      box.innerHTML = empty("この日の予定はありません。＋予定から追加できます。");
-    }
-
-    events.forEach(item => {
-      const row = document.createElement("article");
-      row.className = "event-card";
-      row.innerHTML = `
-        <i class="event-stripe"></i>
-        <div>
-          <h3>${esc(item.title)}</h3>
-          <p>${esc(item.notes || "")}</p>
-          <small>${esc(item.start || "時間指定なし")}${item.end ? "〜" + esc(item.end) : ""}</small>
-        </div>
-        <button class="secondary-button" type="button">編集</button>`;
-
-      row.querySelector("button").addEventListener("click", () => openEvent(item));
-      box.append(row);
-    });
-  }
-
-  function renderTasks() {
-    const box = $("#task-list");
-    if (!box) return;
-
-    box.replaceChildren();
-
-    if (!calendar.tasks.length) {
-      box.innerHTML = empty("タスクはまだありません。");
-      return;
-    }
-
-    calendar.tasks.forEach(task => {
-      const row = document.createElement("div");
-      row.className = "task-row" + (task.completed ? " done" : "");
-
-      row.innerHTML = `
-        <input type="checkbox" ${task.completed ? "checked" : ""} aria-label="完了">
-        <div class="task-main">
-          <strong>${esc(task.title)}</strong>
-          <small>${task.date ? "期限：" + esc(dateText(task.date)) : "期限なし"}</small>
-        </div>
-        <button class="secondary-button" type="button">編集</button>`;
-
-      row.querySelector("input").addEventListener("change", event => {
-        task.completed = event.target.checked;
-        saveCalendar();
-        renderTasks();
-        renderCalendar();
-      });
-
-      row.querySelector("button").addEventListener("click", () => openTask(task));
-      box.append(row);
-    });
-  }
-
-  function renderCalendarAll() {
-    renderCalendar();
+    renderCalendarGrid();
     renderDayItems();
     renderTasks();
   }
 
-  function openEvent(item = null) {
-    $("#event-form").reset();
-    $("#event-id").value = item?.id || "";
-    $("#event-title").value = item?.title || "";
-    $("#event-date").value = item?.date || selectedDate;
-    $("#event-start").value = item?.start || "";
-    $("#event-end").value = item?.end || "";
-    $("#event-notes").value = item?.notes || "";
-    $("#event-dialog-title").textContent = item ? "予定を編集" : "予定を追加";
-    $("#delete-event").hidden = !item;
-    $("#event-dialog").showModal();
+  function renderCalendarGrid() {
+    const container = $("#calendar-grid");
+    if (!container) return;
+
+    const month = state.calendarMonth;
+    const year = month.getFullYear();
+    const monthIndex = month.getMonth();
+
+    const title = $("#calendar-month");
+    if (title) title.textContent = `${year}年${monthIndex + 1}月`;
+
+    const firstDay = new Date(year, monthIndex, 1);
+    const start = new Date(year, monthIndex, 1 - firstDay.getDay());
+    const today = todayKey();
+
+    let html = "";
+
+    for (let i = 0; i < 42; i++) {
+      const date = addDays(start, i);
+      const key = dateKey(date);
+      const isCurrentMonth = date.getMonth() === monthIndex;
+      const isToday = key === today;
+      const isSelected = key === state.selectedDate;
+
+      const hasEvents = state.events.some(event => event.date === key);
+      const hasTasks = state.tasks.some(task => task.date === key);
+
+      const classes = [
+        "calendar-day",
+        !isCurrentMonth ? "outside-month" : "",
+        isToday ? "today" : "",
+        isSelected ? "selected" : ""
+      ].filter(Boolean).join(" ");
+
+      html += `
+        <button type="button" class="${classes}" data-calendar-date="${key}"
+          aria-label="${escapeHTML(formatDate(key, { year: true, weekday: true }))}">
+          <span class="calendar-day-number">${date.getDate()}</span>
+          <span class="calendar-day-indicators">
+            ${hasEvents ? '<span class="event-dot" aria-label="予定あり"></span>' : ""}
+            ${hasTasks ? '<span class="task-dot" aria-label="タスクあり"></span>' : ""}
+          </span>
+        </button>`;
+    }
+
+    container.innerHTML = html;
   }
 
-  function openTask(task = null) {
-    $("#task-form").reset();
-    $("#task-id").value = task?.id || "";
-    $("#task-title").value = task?.title || "";
-    $("#task-date").value = task?.date || selectedDate;
-    $("#task-notes").value = task?.notes || "";
-    $("#task-dialog-title").textContent = task ? "タスクを編集" : "タスクを追加";
-    $("#delete-task").hidden = !task;
-    $("#task-dialog").showModal();
+  function renderDayItems() {
+    const container = $("#day-items");
+    if (!container) return;
+
+    const title = $("#selected-day-title");
+    if (title) title.textContent = `${formatDate(state.selectedDate, { year: true, weekday: true })} の予定`;
+
+    const events = state.events
+      .filter(event => event.date === state.selectedDate)
+      .sort((a, b) => String(a.time).localeCompare(String(b.time)));
+
+    if (!events.length) {
+      container.innerHTML = '<p class="empty-state">この日の予定はありません。</p>';
+      return;
+    }
+
+    container.innerHTML = events.map(event => `
+      <article class="event-card" data-category="${escapeHTML(event.category)}">
+        <div class="event-card-header">
+          <div>
+            <h3>${escapeHTML(event.title)}</h3>
+            <p>${escapeHTML(event.time || "時間未設定")} · ${escapeHTML(categoryName(event.category))}</p>
+          </div>
+          <button class="secondary-button" type="button" data-delete-event="${escapeHTML(event.id)}">削除</button>
+        </div>
+        ${event.note ? `<p>${escapeHTML(event.note)}</p>` : ""}
+      </article>`).join("");
   }
 
-  $("#add-event-day").addEventListener("click", () => openEvent());
-  $("#add-task-button").addEventListener("click", () => openTask());
+  function categoryName(category) {
+    return ({
+      study: "勉強",
+      school: "学校",
+      club: "部活",
+      personal: "その他"
+    })[category] || "その他";
+  }
 
-  $("#event-form").addEventListener("submit", event => {
-    event.preventDefault();
+  function renderTasks() {
+    const container = $("#task-list");
+    if (!container) return;
 
-    const item = {
-      id: $("#event-id").value || uid(),
-      title: $("#event-title").value.trim(),
-      date: $("#event-date").value,
-      start: $("#event-start").value,
-      end: $("#event-end").value,
-      notes: $("#event-notes").value.trim()
-    };
-
-    if (!item.title || !item.date) return toast("予定名と日付を入力してください。");
-
-    const index = calendar.events.findIndex(e => e.id === item.id);
-    if (index < 0) calendar.events.push(item);
-    else calendar.events[index] = item;
-
-    selectedDate = item.date;
-    const date = localDate(item.date);
-    calDate = new Date(date.getFullYear(), date.getMonth(), 1);
-
-    saveCalendar();
-    $("#event-dialog").close();
-    renderCalendarAll();
-    toast("予定を保存しました。");
-  });
-
-  $("#delete-event").addEventListener("click", () => {
-    const id = $("#event-id").value;
-    if (!id || !confirm("この予定を削除しますか？")) return;
-
-    calendar.events.splice(
-      0,
-      calendar.events.length,
-      ...calendar.events.filter(e => e.id !== id)
-    );
-
-    saveCalendar();
-    $("#event-dialog").close();
-    renderCalendarAll();
-  });
-
-  $("#task-form").addEventListener("submit", event => {
-    event.preventDefault();
-
-    const id = $("#task-id").value;
-    const old = calendar.tasks.find(t => t.id === id);
-
-    const task = {
-      id: id || uid(),
-      title: $("#task-title").value.trim(),
-      date: $("#task-date").value,
-      notes: $("#task-notes").value.trim(),
-      completed: old?.completed || false
-    };
-
-    if (!task.title) return;
-
-    const index = calendar.tasks.findIndex(t => t.id === task.id);
-    if (index < 0) calendar.tasks.push(task);
-    else calendar.tasks[index] = task;
-
-    saveCalendar();
-    $("#task-dialog").close();
-    renderCalendarAll();
-    toast("タスクを保存しました。");
-  });
-
-  $("#delete-task").addEventListener("click", () => {
-    const id = $("#task-id").value;
-    if (!id || !confirm("このタスクを削除しますか？")) return;
-
-    calendar.tasks.splice(
-      0,
-      calendar.tasks.length,
-      ...calendar.tasks.filter(t => t.id !== id)
-    );
-
-    saveCalendar();
-    $("#task-dialog").close();
-    renderCalendarAll();
-  });
-
-  $("#quick-task-form").addEventListener("submit", event => {
-    event.preventDefault();
-
-    const title = $("#quick-task-title").value.trim();
-    if (!title) return;
-
-    calendar.tasks.push({
-      id: uid(),
-      title,
-      date: selectedDate,
-      notes: "",
-      completed: false
+    const tasks = [...state.tasks].sort((a, b) => {
+      if (a.completed !== b.completed) return Number(a.completed) - Number(b.completed);
+      if (!a.date) return 1;
+      if (!b.date) return -1;
+      return a.date.localeCompare(b.date);
     });
 
-    event.target.reset();
-    saveCalendar();
-    renderCalendarAll();
-    toast("タスクを追加しました。");
-  });
-
-  $("#prev-month").addEventListener("click", () => {
-    calDate = new Date(calDate.getFullYear(), calDate.getMonth() - 1, 1);
-    renderCalendar();
-  });
-
-  $("#next-month").addEventListener("click", () => {
-    calDate = new Date(calDate.getFullYear(), calDate.getMonth() + 1, 1);
-    renderCalendar();
-  });
-
-  $("#today-button").addEventListener("click", () => {
-    selectedDate = todayKey();
-    const date = new Date();
-    calDate = new Date(date.getFullYear(), date.getMonth(), 1);
-    renderCalendarAll();
-  });
-
-  // 起動時の初期化
-  if (running) {
-    tick = setInterval(() => {
-      updateTimerUI();
-      persistTimer();
-    }, 500);
-  } else if (elapsedBase > 0) {
-    paused = true;
-  }
-
-  if (timer.subjectId && state.subjects.some(s => s.id === timer.subjectId)) {
-    selectedSubject = timer.subjectId;
-  }
-  if (timer.itemId && state.items.some(i => i.id === timer.itemId)) {
-    selectedItem = timer.itemId;
-  }
-
-  // カレンダーの日付マスを必ず描画する
-  persistStudy();
-  renderHome();
-  renderSubjects();
-  renderRecords();
-  renderGoals();
-  renderCalendarAll();
-  updateTimerUI();
-
-  document.addEventListener("visibilitychange", () => {
-    if (running) persistTimer();
-    if (!document.hidden) {
-      updateTimerUI();
-      renderHome();
-      if (!$("#view-calendar").hidden) renderCalendarAll();
+    if (!tasks.length) {
+      container.innerHTML = '<p class="empty-state">タスクはありません。</p>';
+      return;
     }
-  });
 
-  window.addEventListener("beforeunload", persistTimer);
+    container.innerHTML = tasks.map(task => `
+      <article class="task-row ${task.completed ? "completed" : ""}">
+        <input type="checkbox" data-toggle-task="${escapeHTML(task.id)}"
+          ${task.completed ? "checked" : ""}
+          aria-label="${escapeHTML(task.title)}を完了にする">
+        <div class="task-row-content">
+          <h3>${escapeHTML(task.title)}</h3>
+          <small class="muted">${task.date ? `期限：${escapeHTML(formatDate(task.date))}` : "期限なし"}</small>
+          <div><span class="priority-label ${escapeHTML(task.priority)}">${escapeHTML(priorityName(task.priority))}</span></div>
+          <div class="button-row">
+            <button class="secondary-button" type="button" data-delete-task="${escapeHTML(task.id)}">削除</button>
+          </div>
+        </div>
+      </article>`).join("");
+  }
+
+  function priorityName(priority) {
+    return ({
+      high: "優先度：高",
+      normal: "優先度：通常",
+      low: "優先度：低"
+    })[priority] || "優先度：通常";
+  }
+
+  function addEvent(formData) {
+    state.events.push({
+      id: makeId("event"),
+      title: formData.title.trim(),
+      date: formData.date,
+      time: formData.time || "",
+      category: formData.category || "personal",
+      note: formData.note || ""
+    });
+
+    state.selectedDate = formData.date;
+    state.calendarMonth = new Date(
+      parseDate(formData.date).getFullYear(),
+      parseDate(formData.date).getMonth(),
+      1
+    );
+
+    saveAll();
+    renderCalendar();
+    renderHome();
+    showToast("予定を追加しました。");
+  }
+
+  function deleteEvent(id) {
+    const event = state.events.find(item => item.id === id);
+    if (!event) return;
+
+    if (!confirm(`「${event.title}」を削除しますか？`)) return;
+
+    state.events = state.events.filter(item => item.id !== id);
+    saveAll();
+    renderCalendar();
+    renderHome();
+    showToast("予定を削除しました。");
+  }
+
+  function addTask(title, date, priority) {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+
+    state.tasks.push({
+      id: makeId("task"),
+      title: trimmed,
+      date: date || "",
+      priority: priority || "normal",
+      completed: false,
+      createdAt: Date.now()
+    });
+
+    saveAll();
+    renderCalendar();
+    showToast("タスクを追加しました。");
+  }
+
+  function toggleTask(id, completed) {
+    const task = state.tasks.find(item => item.id === id);
+    if (!task) return;
+
+    task.completed = completed;
+    saveAll();
+    renderCalendar();
+  }
+
+  function deleteTask(id) {
+    const task = state.tasks.find(item => item.id === id);
+    if (!task) return;
+
+    if (!confirm(`「${task.title}」を削除しますか？`)) return;
+
+    state.tasks = state.tasks.filter(item => item.id !== id);
+    saveAll();
+    renderCalendar();
+    showToast("タスクを削除しました。");
+  }
+
+  function renderGoalParentOptions() {
+    const select = $("#goal-parent");
+    if (!select) return;
+
+    select.innerHTML = '<option value="">なし（大きな目標）</option>' +
+      state.goals.map(goal => `
+        <option value="${escapeHTML(goal.id)}">${escapeHTML(goal.name)}</option>`
+      ).join("");
+  }
+
+  function goalDepth(goal, visited = new Set()) {
+    if (!goal.parentId || visited.has(goal.id)) return 0;
+
+    visited.add(goal.id);
+    const parent = state.goals.find(item => item.id === goal.parentId);
+
+    if (!parent) return 0;
+    return 1 + goalDepth(parent, visited);
+  }
+
+  function goalStatus(goal) {
+    if (goal.completed) return "completed";
+    if (goal.parentId) {
+      const parent = state.goals.find(item => item.id === goal.parentId);
+      if (parent && !parent.completed) return "locked";
+    }
+    return "active";
+  }
+
+  function goalStatusName(goal) {
+    return ({
+      completed: "達成！",
+      active: "進行中",
+      locked: "準備中"
+    })[goalStatus(goal)];
+  }
+
+  function renderGoals() {
+    const container = $("#goal-list");
+    const nodes = $("#goal-nodes");
+    const details = $("#goal-details");
+
+    if (!container || !nodes || !details) return;
+
+    const mainGoal = state.goals.find(goal => !goal.parentId) || state.goals[0];
+    const mainTitle = $("#goal-main-title");
+    const mainDescription = $("#goal-main-description");
+
+    if (mainTitle) mainTitle.textContent = mainGoal ? mainGoal.name : "目標を設定しよう";
+    if (mainDescription) {
+      mainDescription.textContent = mainGoal
+        ? mainGoal.description || "小さなステップを達成して進みましょう。"
+        : "大きな目標と、そのための小さなステップを登録できます。";
+    }
+
+    if (!state.goals.length) {
+      nodes.innerHTML = `
+        <g>
+          <circle cx="180" cy="115" r="32" fill="#263b74" stroke="#91a8ff" stroke-width="2"/>
+          <text x="180" y="120" text-anchor="middle" fill="#fff" font-size="13">START</text>
+          <path d="M180 150 L180 215" stroke="#7588d1" stroke-width="2" stroke-dasharray="4 6"/>
+          <circle cx="180" cy="250" r="25" fill="#17294d" stroke="#7087d9" stroke-width="2"/>
+          <text x="180" y="254" text-anchor="middle" fill="#fff" font-size="10">GOAL</text>
+          <text x="180" y="330" text-anchor="middle" fill="#b9c8ef" font-size="12">目標を追加して宇宙へ進もう</text>
+          <circle cx="180" cy="480" r="46" fill="#293e79" stroke="#c4d3ff" stroke-width="2"/>
+          <text x="180" y="485" text-anchor="middle" fill="#fff" font-size="14">MOON</text>
+        </g>`;
+      container.innerHTML = '<p class="empty-state">最初の目標を追加しましょう。</p>';
+      details.innerHTML = "";
+      return;
+    }
+
+    const sorted = [...state.goals].sort((a, b) =>
+      goalDepth(b) - goalDepth(a) ||
+      Number(a.createdAt || 0) - Number(b.createdAt || 0)
+    );
+
+    const positions = new Map();
+    const topY = 75;
+    const bottomY = 525;
+    const gapY = sorted.length > 1
+      ? Math.min(100, (bottomY - topY) / (sorted.length - 1))
+      : 0;
+
+    sorted.forEach((goal, index) => {
+      const depth = goalDepth(goal);
+      const x = 180 + (depth % 2 === 0 ? -1 : 1) * Math.min(depth, 2) * 65;
+      const y = sorted.length === 1 ? 300 : topY + index * gapY;
+      positions.set(goal.id, {
+        x: Math.max(65, Math.min(295, x)),
+        y
+      });
+    });
+
+    let svg = `
+      <g>
+        <circle cx="180" cy="565" r="23" fill="#263e75" stroke="#b7ccff" stroke-width="2"/>
+        <text x="180" y="569" text-anchor="middle" fill="#fff" font-size="10">MOON</text>
+      </g>`;
+
+    sorted.forEach(goal => {
+      if (!goal.parentId) return;
+
+      const from = positions.get(goal.parentId);
+      const to = positions.get(goal.id);
+      if (!from || !to) return;
+
+      const middleY = (from.y + to.y) / 2;
+      svg += `<path class="goal-connection" d="M ${from.x} ${from.y} C ${from.x} ${middleY}, ${to.x} ${middleY}, ${to.x} ${to.y}"/>`;
+    });
+
+    sorted.forEach(goal => {
+      const position = positions.get(goal.id);
+      const status = goalStatus(goal);
+      const label = goal.name.length > 12
+        ? goal.name.slice(0, 11) + "…"
+        : goal.name;
+
+      svg += `
+        <g class="goal-node ${status}" data-goal-node="${escapeHTML(goal.id)}"
+          role="button" tabindex="0" aria-label="${escapeHTML(goal.name)}">
+          <circle cx="${position.x}" cy="${position.y}" r="24"
+            fill="${status === "completed" ? "#276e75" : status === "locked" ? "#263047" : "#354d8b"}"
+            stroke="${status === "completed" ? "#7be8d7" : status === "locked" ? "#65718b" : "#9eafff"}"
+            stroke-width="2"/>
+          <text x="${position.x}" y="${position.y + 4}">${status === "completed" ? "✓" : status === "locked" ? "Ⅱ" : "✦"}</text>
+          <text x="${position.x}" y="${position.y + 39}">${escapeHTML(label)}</text>
+        </g>`;
+    });
+
+    nodes.innerHTML = svg;
+
+    container.innerHTML = sorted.map(goal => `
+      <article class="goal-card">
+        <div class="goal-card-header">
+          <div>
+            <h3>${escapeHTML(goal.name)}</h3>
+            <p>${escapeHTML(goal.description || goal.step || "目標を達成しよう。")}</p>
+            ${goal.deadline ? `<p>期限：${escapeHTML(formatDate(goal.deadline, { year: true }))}</p>` : ""}
+          </div>
+          <span class="goal-status ${goalStatus(goal)}">${goalStatusName(goal)}</span>
+        </div>
+        <div class="button-row">
+          ${!goal.completed
+            ? `<button class="primary-button" type="button" data-complete-goal="${escapeHTML(goal.id)}">達成にする</button>`
+            : `<button class="secondary-button" type="button" data-uncomplete-goal="${escapeHTML(goal.id)}">未達成に戻す</button>`}
+          <button class="secondary-button" type="button" data-delete-goal="${escapeHTML(goal.id)}">削除</button>
+        </div>
+      </article>`).join("");
+
+    const activeGoals = sorted.filter(goal => !goal.completed);
+    const nextGoal = activeGoals[0];
+
+    details.innerHTML = nextGoal ? `
+      <article class="goal-card">
+        <h3>次のミッション：${escapeHTML(nextGoal.name)}</h3>
+        <p>${escapeHTML(nextGoal.step || "この目標に向けて、今日できることを一つ進めよう。")}</p>
+      </article>` : `
+      <article class="goal-card">
+        <h3>すべての目標を達成しました！</h3>
+        <p>新しい目標を登録して、次の星を目指しましょう。</p>
+      </article>`;
+  }
+
+  function addGoal(data) {
+    const name = data.name.trim();
+    if (!name) return;
+
+    const parentId = data.parentId || "";
+
+    if (parentId && !state.goals.some(goal => goal.id === parentId)) {
+      showToast("親目標が見つかりません。");
+      return;
+    }
+
+    const goal = {
+      id: makeId("goal"),
+      name,
+      description: data.description.trim(),
+      deadline: data.deadline || "",
+      parentId,
+      step: data.step.trim(),
+      completed: false,
+      createdAt: Date.now()
+    };
+
+    state.goals.push(goal);
+    saveAll();
+    renderGoals();
+    showToast("目標を追加しました。");
+  }
+
+  function completeGoal(id, completed) {
+    const goal = state.goals.find(item => item.id === id);
+    if (!goal) return;
+
+    if (completed) {
+      const children = state.goals.filter(item => item.parentId === id);
+      const incompleteChildren = children.filter(item => !item.completed);
+
+      if (incompleteChildren.length) {
+        const proceed = confirm(
+          "未達成の子目標があります。それでもこの目標を達成にしますか？"
+        );
+        if (!proceed) return;
+      }
+    }
+
+    goal.completed = completed;
+    saveAll();
+    renderGoals();
+    showToast(completed ? "目標達成！" : "目標を未達成に戻しました。");
+  }
+
+  function deleteGoal(id) {
+    const goal = state.goals.find(item => item.id === id);
+    if (!goal) return;
+
+    const children = state.goals.filter(item => item.parentId === id);
+    const message = children.length
+      ? `「${goal.name}」と、その下の目標のつながりを解除しますか？`
+      : `「${goal.name}」を削除しますか？`;
+
+    if (!confirm(message)) return;
+
+    state.goals = state.goals.filter(item => item.id !== id);
+    state.goals.forEach(item => {
+      if (item.parentId === id) item.parentId = "";
+    });
+
+    saveAll();
+    renderGoals();
+    showToast("目標を削除しました。");
+  }
+
+  function exportRecords() {
+    const data = {
+      exportedAt: new Date().toISOString(),
+      subjects: state.subjects,
+      items: state.items,
+      records: state.records,
+      events: state.events,
+      tasks: state.tasks,
+      goals: state.goals,
+      countdown: state.countdown,
+      settings: state.settings
+    };
+
+    const blob = new Blob(
+      [JSON.stringify(data, null, 2)],
+      { type: "application/json;charset=utf-8" }
+    );
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `one-for-all-backup-${todayKey()}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+
+    showToast("記録を書き出しました。");
+  }
+
+  function bindEvents() {
+    document.addEventListener("click", event => {
+      const target = event.target.closest("button, [data-goal-node]");
+      if (!target) return;
+
+      if (target.dataset.navigate) {
+        showView(target.dataset.navigate);
+        return;
+      }
+
+      if (target.dataset.openDialog) {
+        openDialog(target.dataset.openDialog);
+        return;
+      }
+
+      if (target.hasAttribute("data-close-dialog")) {
+        closeDialog(target.closest("dialog"));
+        return;
+      }
+
+      if (target.dataset.selectSubject) {
+        selectSubject(target.dataset.selectSubject);
+        return;
+      }
+
+      if (target.dataset.selectItem) {
+        selectItem(target.dataset.selectItem);
+        return;
+      }
+
+      if (target.dataset.deleteSubject) {
+        deleteSubject(target.dataset.deleteSubject);
+        return;
+      }
+
+      if (target.dataset.deleteItem) {
+        deleteItem(target.dataset.deleteItem);
+        return;
+      }
+
+      if (target.dataset.deleteRecord) {
+        deleteRecord(target.dataset.deleteRecord);
+        return;
+      }
+
+      if (target.dataset.chartPeriod) {
+        state.chartPeriod = target.dataset.chartPeriod;
+        $$("[data-chart-period]").forEach(button => {
+          button.classList.toggle("active", button === target);
+        });
+        renderChart();
+        return;
+      }
+
+      if (target.dataset.breakdownMode) {
+        state.breakdownMode = target.dataset.breakdownMode;
+        $$("[data-breakdown-mode]").forEach(button => {
+          button.classList.toggle("active", button === target);
+        });
+        renderBreakdown();
+        return;
+      }
+
+      if (target.dataset.calendarDate) {
+        state.selectedDate = target.dataset.calendarDate;
+        const selected = parseDate(state.selectedDate);
+        state.calendarMonth = new Date(selected.getFullYear(), selected.getMonth(), 1);
+        renderCalendar();
+        return;
+      }
+
+      if (target.id === "calendar-prev") {
+        state.calendarMonth = new Date(
+          state.calendarMonth.getFullYear(),
+          state.calendarMonth.getMonth() - 1,
+          1
+        );
+        renderCalendarGrid();
+        return;
+      }
+
+      if (target.id === "calendar-next") {
+        state.calendarMonth = new Date(
+          state.calendarMonth.getFullYear(),
+          state.calendarMonth.getMonth() + 1,
+          1
+        );
+        renderCalendarGrid();
+        return;
+      }
+
+      if (target.id === "calendar-today" || target.id === "today-button") {
+        state.selectedDate = todayKey();
+        state.calendarMonth = new Date(
+          new Date().getFullYear(),
+          new Date().getMonth(),
+          1
+        );
+
+        if (target.id === "today-button" && state.view !== "calendar") {
+          showView("home");
+        } else {
+          renderCalendar();
+        }
+        return;
+      }
+
+      if (target.dataset.deleteEvent) {
+        deleteEvent(target.dataset.deleteEvent);
+        return;
+      }
+
+      if (target.dataset.deleteTask) {
+        deleteTask(target.dataset.deleteTask);
+        return;
+      }
+
+      if (target.dataset.completeGoal) {
+        completeGoal(target.dataset.completeGoal, true);
+        return;
+      }
+
+      if (target.dataset.uncompleteGoal) {
+        completeGoal(target.dataset.uncompleteGoal, false);
+        return;
+      }
+
+      if (target.dataset.deleteGoal) {
+        deleteGoal(target.dataset.deleteGoal);
+        return;
+      }
+
+      if (target.dataset.goalNode) {
+        const goal = state.goals.find(item => item.id === target.dataset.goalNode);
+        if (goal) {
+          const card = [...$$(".goal-card")].find(element =>
+            element.querySelector("h3")?.textContent === goal.name
+          );
+          card?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+        return;
+      }
+
+      if (target.id === "timer-start") {
+        startTimer();
+        return;
+      }
+
+      if (target.id === "timer-pause") {
+        pauseTimer();
+        return;
+      }
+
+      if (target.id === "timer-stop") {
+        stopTimer();
+        return;
+      }
+
+      if (target.id === "export-records") {
+        exportRecords();
+      }
+    });
+
+    document.addEventListener("change", event => {
+      const target = event.target;
+
+      if (target.matches("[data-toggle-task]")) {
+        toggleTask(target.dataset.toggleTask, target.checked);
+        return;
+      }
+
+      if (target.id === "manual-subject") {
+        renderSubjectSelects();
+        return;
+      }
+
+      if (target.id === "manual-item") {
+        const item = itemById(target.value);
+        if (item) {
+          state.selectedSubjectId = item.subjectId;
+          state.selectedItemId = item.id;
+        }
+      }
+    });
+
+    $("#subject-form")?.addEventListener("submit", event => {
+      event.preventDefault();
+
+      const name = $("#subject-name")?.value || "";
+      const color = $("#subject-color")?.value || COLORS[0];
+
+      addSubject(name, color);
+      event.currentTarget.reset();
+      closeDialog($("#subject-dialog"));
+    });
+
+    $("#item-form")?.addEventListener("submit", event => {
+      event.preventDefault();
+
+      const name = $("#item-name")?.value || "";
+      const subjectId = $("#item-subject")?.value || "";
+
+      if (!subjectId) {
+        showToast("科目を選択してください。");
+        return;
+      }
+
+      addItem(name, subjectId);
+      event.currentTarget.reset();
+      closeDialog($("#item-dialog"));
+    });
+
+    $("#manual-time-form")?.addEventListener("submit", event => {
+      event.preventDefault();
+
+      const subjectId = $("#manual-subject")?.value || "";
+      const itemId = $("#manual-item")?.value || "";
+      const hours = Number($("#manual-hours")?.value || 0);
+      const minutes = Number($("#manual-minutes")?.value || 0);
+      const date = $("#manual-date")?.value || todayKey();
+      const note = $("#manual-note")?.value || "";
+
+      if (!subjectById(subjectId)) {
+        showToast("科目を選択してください。");
+        return;
+      }
+
+      if (!Number.isFinite(hours) || !Number.isFinite(minutes) ||
+          hours < 0 || minutes < 0 || minutes > 59) {
+        showToast("時間と分を正しく入力してください。");
+        return;
+      }
+
+      const total = hours * 60 + minutes;
+      if (total <= 0) {
+        showToast("1分以上の時間を入力してください。");
+        return;
+      }
+
+      const saved = addStudyRecord({
+        subjectId,
+        itemId,
+        date,
+        minutes: total,
+        note
+      });
+
+      if (saved) {
+        $("#manual-hours").value = "0";
+        $("#manual-minutes").value = "30";
+        $("#manual-note").value = "";
+        showToast("学習時間を追加しました。");
+      }
+    });
+
+    $("#study-target-form")?.addEventListener("submit", event => {
+      event.preventDefault();
+
+      const daily = Number($("#daily-target")?.value);
+      const weekly = Number($("#weekly-target")?.value);
+
+      if (!Number.isFinite(daily) || daily < 1 ||
+          !Number.isFinite(weekly) || weekly < 1) {
+        showToast("目標時間は1分以上にしてください。");
+        return;
+      }
+
+      state.settings.dailyTarget = daily;
+      state.settings.weeklyTarget = weekly;
+
+      saveAll();
+      renderTargetProgress();
+      showToast("目標学習時間を保存しました。");
+    });
+
+    $("#event-form")?.addEventListener("submit", event => {
+      event.preventDefault();
+
+      const title = $("#event-title")?.value || "";
+      const date = $("#event-date")?.value || "";
+
+      if (!title.trim() || !date) {
+        showToast("予定名と日付を入力してください。");
+        return;
+      }
+
+      addEvent({
+        title,
+        date,
+        time: $("#event-time")?.value || "",
+        category: $("#event-category")?.value || "personal",
+        note: $("#event-note")?.value || ""
+      });
+
+      event.currentTarget.reset();
+      closeDialog($("#event-dialog"));
+    });
+
+    $("#task-form")?.addEventListener("submit", event => {
+      event.preventDefault();
+
+      const title = $("#task-title")?.value || "";
+      if (!title.trim()) return;
+
+      addTask(
+        title,
+        $("#task-date")?.value || "",
+        $("#task-priority")?.value || "normal"
+      );
+
+      event.currentTarget.reset();
+      closeDialog($("#task-dialog"));
+    });
+
+    $("#goal-form")?.addEventListener("submit", event => {
+      event.preventDefault();
+
+      addGoal({
+        name: $("#goal-name")?.value || "",
+        description: $("#goal-description")?.value || "",
+        deadline: $("#goal-deadline")?.value || "",
+        parentId: $("#goal-parent")?.value || "",
+        step: $("#goal-step")?.value || ""
+      });
+
+      event.currentTarget.reset();
+      closeDialog($("#goal-dialog"));
+    });
+
+    $("#countdown-form")?.addEventListener("submit", event => {
+      event.preventDefault();
+
+      const name = $("#countdown-name")?.value || "";
+      const date = $("#countdown-date")?.value || "";
+
+      if (!name.trim() || !date) {
+        showToast("イベント名と日付を入力してください。");
+        return;
+      }
+
+      state.countdown = {
+        name: name.trim(),
+        date
+      };
+
+      saveAll();
+      renderCountdown();
+      closeDialog($("#countdown-dialog"));
+      showToast("カウントダウンを保存しました。");
+    });
+
+    window.addEventListener("resize", () => {
+      if (state.view === "records") renderChart();
+    });
+
+    window.addEventListener("pagehide", () => {
+      if (state.timer.running) {
+        state.timer.elapsedBeforeStart +=
+          (Date.now() - state.timer.startedAt) / 1000;
+        state.timer.startedAt = Date.now();
+      }
+      saveAll();
+    });
+
+    document.addEventListener("keydown", event => {
+      if (event.key !== "Escape") return;
+
+      const open = $("dialog[open]");
+      if (open) closeDialog(open);
+    });
+  }
+
+  function initializeFormDefaults() {
+    const dateInput = $("#manual-date");
+    if (dateInput && !dateInput.value) dateInput.value = todayKey();
+
+    const daily = $("#daily-target");
+    if (daily) daily.value = state.settings.dailyTarget;
+
+    const weekly = $("#weekly-target");
+    if (weekly) weekly.value = state.settings.weeklyTarget;
+
+    renderSubjectSelects();
+  }
+
+  function init() {
+    loadData();
+    bindEvents();
+    initializeFormDefaults();
+
+    renderHome();
+    renderSubjects();
+    renderRecords();
+    renderCalendar();
+    renderGoals();
+
+    showView("home");
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init, { once: true });
+  } else {
+    init();
+  }
 })();
