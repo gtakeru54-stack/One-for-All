@@ -3,733 +3,258 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#070b19">
-  <meta name="description" content="学習・予定・タスクをまとめて管理する個人用アプリ">
+  <meta name="description" content="予定・タスク・学習時間をまとめて管理する個人用アプリ">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="One for All">
-
-  <title>One for All - Learn</title>
-
+  <title>One for All</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icons/app-icon.svg">
   <link rel="stylesheet" href="./css/style.css">
 
-  <!-- 学習メニュー専用のデザイン -->
   <style>
-    .app-view[hidden] {
-      display: none !important;
-    }
-
-    .learning-home {
-      margin-bottom: 26px;
-    }
-
-    .learning-home h2 {
-      font-size: clamp(25px, 5vw, 34px);
-      margin-bottom: 10px;
-    }
-
-    .learning-description {
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.8;
-    }
-
-    .study-overview {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-      margin: 20px 0 28px;
-    }
-
-    .study-stat {
-      padding: 17px;
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      background: rgba(24, 33, 67, .68);
-    }
-
-    .study-stat-label {
-      display: block;
-      color: var(--muted);
-      font-size: 11px;
-      margin-bottom: 9px;
-    }
-
-    .study-stat strong {
-      font-size: 23px;
-      color: var(--cyan);
-    }
-
-    .study-stat small {
-      color: var(--muted);
-      font-size: 11px;
-    }
-
-    .menu-section-title {
-      font-size: 17px;
-      margin: 26px 0 14px;
-    }
-
-    .main-menu {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-    }
-
-    .menu-card {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 11px;
-      min-width: 0;
-      min-height: 155px;
-      padding: 18px;
-      border: 1px solid var(--line);
-      border-radius: 20px;
-      background: linear-gradient(
-        145deg,
-        rgba(35, 44, 83, .92),
-        rgba(13, 19, 42, .92)
-      );
-      color: var(--text);
-      text-align: left;
-      box-shadow: var(--shadow);
-      transition: transform .18s, border-color .18s;
-    }
-
-    .menu-card:hover {
-      transform: translateY(-2px);
-      border-color: var(--cyan);
-    }
-
-    .menu-card:active {
-      transform: scale(.98);
-    }
-
-    .menu-icon {
-      display: grid;
-      place-items: center;
-      width: 46px;
-      height: 46px;
-      border-radius: 15px;
-      background: var(--primary-soft);
-      font-size: 25px;
-    }
-
-    .menu-card strong {
-      font-size: 14px;
-    }
-
-    .menu-card small {
-      color: var(--muted);
-      font-size: 11px;
-      line-height: 1.6;
-    }
-
-    .study-placeholder {
-      padding: 22px 18px;
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      background: var(--panel);
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.9;
-    }
-
-    .study-placeholder .placeholder-icon {
-      display: block;
-      margin-bottom: 12px;
-      font-size: 32px;
-    }
-
-    .study-placeholder strong {
-      display: block;
-      color: var(--text);
-      font-size: 16px;
-      margin-bottom: 8px;
-    }
-
-    .page-back {
-      margin-bottom: 20px;
-    }
-
-    .bottom-nav {
-      position: fixed;
-      z-index: 50;
-      bottom: max(10px, env(safe-area-inset-bottom));
-      left: 50%;
-      transform: translateX(-50%);
-      width: min(460px, calc(100% - 24px));
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 4px;
-      padding: 8px;
-      border: 1px solid rgba(154, 170, 225, .25);
-      border-radius: 22px;
-      background: rgba(12, 18, 41, .95);
-      box-shadow: 0 12px 36px rgba(0, 0, 0, .4);
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
-    }
-
-    .bottom-nav button {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-      min-width: 0;
-      min-height: 53px;
-      padding: 6px 2px;
-      border: 0;
-      border-radius: 14px;
-      background: transparent;
-      color: var(--muted);
-      font-size: 10px;
-      font-weight: 700;
-    }
-
-    .bottom-nav button span {
-      font-size: 21px;
-      line-height: 1.2;
-    }
-
-    .bottom-nav button.active {
-      background: var(--primary-soft);
-      color: var(--cyan);
-    }
-
-    body {
-      padding-bottom: calc(100px + env(safe-area-inset-bottom));
-    }
-
-    @media (max-width: 560px) {
-      .main-menu {
-        gap: 10px;
-      }
-
-      .menu-card {
-        min-height: 145px;
-        padding: 14px;
-      }
-
-      .study-stat {
-        padding: 14px;
-      }
-
-      .study-stat strong {
-        font-size: 21px;
-      }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      .menu-card {
-        transition: none;
-      }
+    .app-view[hidden] { display: none !important; }
+    .study-page { max-width: 1000px; margin: 0 auto; }
+    .study-intro { margin: 12px 0 24px; color: var(--muted); line-height: 1.8; font-size: 13px; }
+    .study-stats { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; margin: 18px 0; }
+    .study-stat { min-width: 0; padding: 16px 12px; border: 1px solid var(--line); border-radius: 17px; background: var(--panel); }
+    .study-stat span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 10px; }
+    .study-stat strong { font-size: clamp(18px,4vw,26px); overflow-wrap: anywhere; }
+    .study-stat small { font-size: 11px; font-weight: normal; }
+    .study-section { margin-top: 24px; }
+    .study-section h3 { margin: 0 0 13px; font-size: 16px; }
+    .study-item-list { display: grid; gap: 10px; }
+    .study-item { display: flex; align-items: center; gap: 12px; padding: 15px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
+    .study-item-info { flex: 1; min-width: 0; }
+    .study-item-info strong { display: block; overflow-wrap: anywhere; }
+    .study-item-info small { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; }
+    .study-item-time { font-size: 12px; color: var(--primary); font-weight: 800; white-space: nowrap; }
+    .study-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .study-actions button { min-height: 40px; }
+    .study-empty { padding: 22px 14px; border: 1px dashed var(--line); border-radius: 15px; color: var(--muted); text-align: center; font-size: 13px; line-height: 1.8; }
+    .study-timer { padding: 24px 16px; text-align: center; border: 1px solid var(--line); border-radius: 22px; background: var(--panel); }
+    .study-timer-label { color: var(--muted); font-size: 12px; }
+    .study-clock { margin: 14px 0 20px; font-size: clamp(38px,10vw,64px); font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+    .study-timer select { width: 100%; max-width: 400px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); margin: 12px auto 18px; }
+    .study-item-form { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; margin-bottom: 16px; }
+    .study-item-form input { min-width: 0; width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); }
+    .study-history { display: grid; gap: 8px; }
+    .study-history-row { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+    .study-history-row span:last-child { color: var(--muted); text-align: right; }
+    .page-back { margin-bottom: 18px; }
+    .bottom-nav { position: fixed; z-index: 100; bottom: max(8px,env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); width: min(480px,calc(100% - 20px)); display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 4px; padding: 7px; border: 1px solid rgba(154,170,225,.25); border-radius: 20px; background: rgba(12,18,41,.96); box-shadow: 0 12px 36px rgba(0,0,0,.35); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+    .bottom-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-width: 0; min-height: 50px; padding: 5px 2px; border: 0; border-radius: 13px; background: transparent; color: #a4acc8; font-size: 10px; font-weight: 700; cursor: pointer; }
+    .bottom-nav button span { font-size: 20px; line-height: 1.2; }
+    .bottom-nav button.active { background: #292f59; color: #a8e7ff; }
+    body { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
+    .record-filter { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+    .record-filter input { padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); }
+    @media(max-width:560px) {
+      .study-stats { gap: 7px; }
+      .study-stat { padding: 13px 9px; }
+      .study-stat span { font-size: 10px; }
+      .study-item { padding: 12px; gap: 8px; }
+      .study-item-time { font-size: 11px; }
     }
   </style>
 </head>
-
 <body>
-  <div class="app-shell">
+<div class="app-shell">
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">ONE FOR ALL / COSMOS</p>
+      <h1>One for All <span>Learn</span></h1>
+    </div>
+    <button id="add-event-top" class="primary-button" type="button">＋ 予定を追加</button>
+  </header>
 
-    <!-- 共通ヘッダー -->
-    <header class="topbar">
-      <div>
-        <p class="eyebrow">ONE FOR ALL / COSMOS</p>
-        <h1>One for All <span>Learn</span></h1>
+  <main>
+    <section id="home-view" class="app-view study-page">
+      <p class="eyebrow">YOUR LEARNING UNIVERSE</p>
+      <h2>学習ホーム</h2>
+      <p class="study-intro">勉強した時間を記録して、自分の積み重ねを確認しよう。</p>
+
+      <div class="study-stats">
+        <div class="study-stat"><span>今日の学習時間</span><strong id="home-today">0分</strong></div>
+        <div class="study-stat"><span>直近7日間</span><strong id="home-week">0分</strong></div>
+        <div class="study-stat"><span>累計学習時間</span><strong id="home-total">0分</strong></div>
       </div>
 
-      <button id="add-event-top" class="primary-button" type="button">
-        ＋ 予定を追加
-      </button>
-    </header>
-
-    <main>
-
-      <!-- =========================
-           ホーム画面
-      ========================== -->
-      <section id="home-view" class="app-view">
-        <div class="learning-home">
-          <p class="eyebrow">YOUR LEARNING UNIVERSE</p>
-          <h2>学習ホーム</h2>
-          <p class="learning-description">
-            今日の積み重ねを、未来の力に。<br>
-            自分のペースで学習を進めよう。
-          </p>
-        </div>
-
-        <div class="study-overview">
-          <div class="study-stat">
-            <span class="study-stat-label">今日の学習時間</span>
-            <strong>0<small> 分</small></strong>
-          </div>
-
-          <div class="study-stat">
-            <span class="study-stat-label">今日の学習項目</span>
-            <strong>0<small> 件</small></strong>
-          </div>
-        </div>
-
-        <h2 class="menu-section-title">学習メニュー</h2>
-
+      <section class="study-section">
+        <h3>学習メニュー</h3>
         <div class="main-menu">
-          <button class="menu-card" type="button" data-go="learning-view">
-            <span class="menu-icon">📚</span>
-            <strong>講座・授業</strong>
-            <small>科目や単元ごとに学習する</small>
+          <button class="menu-card" type="button" data-go="study-items-view">
+            <span class="menu-icon">📚</span><strong>学習項目</strong><small>好きな項目を登録・管理</small>
           </button>
-
-          <button class="menu-card" type="button" data-go="practice-view">
-            <span class="menu-icon">✍️</span>
-            <strong>問題演習</strong>
-            <small>問題を解いて理解度を確認する</small>
+          <button class="menu-card" type="button" data-go="timer-view">
+            <span class="menu-icon">⏱️</span><strong>学習タイマー</strong><small>勉強時間を計測して保存</small>
           </button>
-
-          <button class="menu-card" type="button" data-go="flashcard-view">
-            <span class="menu-icon">🗂️</span>
-            <strong>暗記・復習</strong>
-            <small>英単語や重要用語を覚える</small>
-          </button>
-
           <button class="menu-card" type="button" data-go="record-view">
-            <span class="menu-icon">📈</span>
-            <strong>学習記録</strong>
-            <small>学習時間や進捗を振り返る</small>
+            <span class="menu-icon">📈</span><strong>学習記録</strong><small>日別・項目別の時間を確認</small>
+          </button>
+          <button class="menu-card" type="button" data-go="calendar-view">
+            <span class="menu-icon">🗓️</span><strong>予定・タスク</strong><small>予定ややることを管理</small>
           </button>
         </div>
+      </section>
 
-        <h2 class="menu-section-title">今日の予定</h2>
+      <section class="study-section">
+        <h3>最近の学習</h3>
+        <div id="home-recent" class="study-history"></div>
+      </section>
+    </section>
 
+    <section id="study-items-view" class="app-view study-page" hidden>
+      <button class="secondary-button page-back" type="button" data-go="home-view">← ホームへ戻る</button>
+      <p class="eyebrow">MY STUDY CATEGORIES</p>
+      <h2>学習項目</h2>
+      <p class="study-intro">科目でも、単元でも、自分が使いやすい名前で登録できます。</p>
+      <form id="study-item-form" class="study-item-form">
+        <input id="study-item-name" type="text" maxlength="80" placeholder="例：英語、数学、英単語" required>
+        <button class="primary-button" type="submit">追加</button>
+      </form>
+      <div id="study-item-list" class="study-item-list"></div>
+    </section>
+
+    <section id="timer-view" class="app-view study-page" hidden>
+      <button class="secondary-button page-back" type="button" data-go="home-view">← ホームへ戻る</button>
+      <p class="eyebrow">FOCUS TIMER</p>
+      <h2>学習タイマー</h2>
+      <p class="study-intro">勉強する項目を選んで開始。終了すると実際の経過時間を記録します。</p>
+      <div class="study-timer">
+        <div class="study-timer-label" id="timer-status">計測していません</div>
+        <select id="timer-item-select" aria-label="学習項目"></select>
+        <div id="timer-clock" class="study-clock">00:00:00</div>
+        <div class="study-actions" style="justify-content:center">
+          <button id="timer-start" class="primary-button" type="button">▶ 開始</button>
+          <button id="timer-stop" class="secondary-button" type="button" disabled>■ 終了して保存</button>
+        </div>
+      </div>
+      <p class="study-intro">計測中に画面を切り替えても、開始時刻から経過時間を計算します。アプリを閉じている間も、再び開くと計測を続けられます。</p>
+    </section>
+
+    <section id="record-view" class="app-view study-page" hidden>
+      <button class="secondary-button page-back" type="button" data-go="home-view">← ホームへ戻る</button>
+      <p class="eyebrow">STUDY HISTORY</p>
+      <h2>学習記録</h2>
+      <div class="study-stats">
+        <div class="study-stat"><span>今日</span><strong id="record-today">0分</strong></div>
+        <div class="study-stat"><span>直近7日間</span><strong id="record-week">0分</strong></div>
+        <div class="study-stat"><span>累計</span><strong id="record-total">0分</strong></div>
+      </div>
+      <section class="study-section">
+        <h3>項目別の累計</h3>
+        <div id="record-by-item" class="study-item-list"></div>
+      </section>
+      <section class="study-section">
+        <h3>日付で絞り込む</h3>
+        <div class="record-filter">
+          <input id="record-date" type="date" aria-label="記録の日付">
+          <button id="record-date-clear" class="secondary-button" type="button">解除</button>
+        </div>
+        <div id="record-history" class="study-history"></div>
+      </section>
+    </section>
+
+    <div id="calendar-view" class="layout app-view" hidden>
+      <section class="panel calendar-panel">
+        <div class="calendar-heading">
+          <button id="prev-month" class="icon-button" type="button" aria-label="前の月">‹</button>
+          <div><h2 id="month-title">カレンダー</h2><button id="today-button" class="text-button" type="button">今日に戻る</button></div>
+          <button id="next-month" class="icon-button" type="button" aria-label="翌月">›</button>
+        </div>
+        <div class="weekdays"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
+        <div id="calendar-grid" class="calendar-grid"></div>
+        <div class="legend"><span class="dot event-dot"></span>予定あり <span class="dot task-dot"></span>タスク期限あり</div>
+      </section>
+      <aside class="side-column">
         <section class="panel">
-          <p class="learning-description">
-            今日の予定とタスクは、下の「予定」から確認できるよ。
-          </p>
-          <button type="button" class="secondary-button" data-go="calendar-view">
-            カレンダーを開く →
-          </button>
+          <div class="section-heading"><div><p class="eyebrow">SELECTED DAY</p><h2 id="selected-date-title">今日の予定</h2></div><button id="add-event-day" class="small-add" type="button">＋</button></div>
+          <div id="day-items" class="item-list"></div>
         </section>
-      </section>
-
-      <!-- =========================
-           講座・授業
-      ========================== -->
-      <section id="learning-view" class="app-view" hidden>
-        <button type="button" class="secondary-button page-back" data-go="home-view">
-          ← ホームへ戻る
-        </button>
-
-        <p class="eyebrow">LEARNING COURSES</p>
-        <h2>講座・授業</h2>
-        <p class="learning-description">
-          科目ごとに学習内容を整理しよう。
-        </p>
-
-        <div class="study-placeholder">
-          <span class="placeholder-icon">📚</span>
-          <strong>自分専用の学習講座</strong>
-          これから科目の登録、単元の作成、授業ノート、学習の進捗管理を追加するよ。
-          <p>次の開発段階で、国語・数学・英語・理科・社会などの科目を登録できるようにする予定。</p>
-        </div>
-      </section>
-
-      <!-- =========================
-           問題演習
-      ========================== -->
-      <section id="practice-view" class="app-view" hidden>
-        <button type="button" class="secondary-button page-back" data-go="home-view">
-          ← ホームへ戻る
-        </button>
-
-        <p class="eyebrow">PRACTICE</p>
-        <h2>問題演習</h2>
-        <p class="learning-description">
-          問題を解いて、理解できているところと苦手なところを見つけよう。
-        </p>
-
-        <div class="study-placeholder">
-          <span class="placeholder-icon">✍️</span>
-          <strong>自分で問題を解く</strong>
-          問題の登録、選択式・記述式の回答、正誤判定、解説、間違えた問題の復習を追加する予定。
-        </div>
-      </section>
-
-      <!-- =========================
-           暗記・復習
-      ========================== -->
-      <section id="flashcard-view" class="app-view" hidden>
-        <button type="button" class="secondary-button page-back" data-go="home-view">
-          ← ホームへ戻る
-        </button>
-
-        <p class="eyebrow">FLASHCARDS</p>
-        <h2>暗記・復習</h2>
-        <p class="learning-description">
-          覚えたい知識をカードにまとめて、繰り返し復習しよう。
-        </p>
-
-        <div class="study-placeholder">
-          <span class="placeholder-icon">🗂️</span>
-          <strong>自分専用の暗記カード</strong>
-          表面と裏面の登録、答えの確認、覚えた・まだ覚えていないの記録を追加する予定。
-        </div>
-      </section>
-
-      <!-- =========================
-           学習記録
-      ========================== -->
-      <section id="record-view" class="app-view" hidden>
-        <button type="button" class="secondary-button page-back" data-go="home-view">
-          ← ホームへ戻る
-        </button>
-
-        <p class="eyebrow">STUDY RECORD</p>
-        <h2>学習記録</h2>
-        <p class="learning-description">
-          毎日の努力を記録して、自分の成長を確認しよう。
-        </p>
-
-        <div class="study-placeholder">
-          <span class="placeholder-icon">📈</span>
-          <strong>学習の振り返り</strong>
-          学習タイマー、日別・週別の学習時間、科目別の進捗、正答率などを追加する予定。
-        </div>
-      </section>
-
-      <!-- =========================
-           既存カレンダー画面
-           既存のIDを維持する
-      ========================== -->
-      <div id="calendar-view" class="layout app-view" hidden>
-
-        <section class="panel calendar-panel">
-          <div class="calendar-heading">
-            <button id="prev-month" class="icon-button" type="button" aria-label="前の月">
-              ‹
-            </button>
-
-            <div>
-              <h2 id="month-title">カレンダーを読み込み中...</h2>
-              <button id="today-button" class="text-button" type="button">
-                今日に戻る
-              </button>
-            </div>
-
-            <button id="next-month" class="icon-button" type="button" aria-label="翌月">
-              ›
-            </button>
-          </div>
-
-          <div class="weekdays" aria-hidden="true">
-            <span>日</span>
-            <span>月</span>
-            <span>火</span>
-            <span>水</span>
-            <span>木</span>
-            <span>金</span>
-            <span>土</span>
-          </div>
-
-          <div id="calendar-grid" class="calendar-grid" aria-label="月間カレンダー"></div>
-
-          <div class="legend">
-            <span class="dot event-dot"></span>
-            予定あり
-            <span class="dot task-dot"></span>
-            タスク期限あり
-          </div>
+        <section class="panel">
+          <div class="section-heading"><div><p class="eyebrow">TO DO</p><h2>やることリスト</h2></div><button id="add-task-button" class="small-add" type="button">＋</button></div>
+          <form id="quick-task-form" class="quick-task-form"><input id="quick-task-title" type="text" maxlength="120" placeholder="やることを入力..." aria-label="やること"><button type="submit">追加</button></form>
+          <div id="task-list" class="task-list"></div>
         </section>
+      </aside>
+    </div>
+  </main>
 
-        <aside class="side-column">
-          <section class="panel day-panel">
-            <div class="section-heading">
-              <div>
-                <p class="eyebrow">SELECTED DAY</p>
-                <h2 id="selected-date-title">今日の予定</h2>
-              </div>
+  <footer>
+    <span>データはこの端末のブラウザ内に保存されます。</span>
+    <button id="export-button" class="text-button" type="button">データを書き出す</button>
+    <label class="text-button import-label">読み込む<input id="import-file" type="file" accept="application/json"></label>
+  </footer>
+</div>
 
-              <button id="add-event-day" class="small-add" type="button" aria-label="選択日の予定を追加">
-                ＋
-              </button>
-            </div>
+<nav class="bottom-nav" aria-label="メインメニュー">
+  <button type="button" class="active" data-view="home-view"><span>⌂</span>ホーム</button>
+  <button type="button" data-view="study-items-view"><span>▤</span>学習項目</button>
+  <button type="button" data-view="calendar-view"><span>▦</span>予定</button>
+  <button type="button" data-view="record-view"><span>▥</span>記録</button>
+</nav>
 
-            <div id="day-items" class="item-list"></div>
-          </section>
+<dialog id="event-dialog" class="editor-dialog">
+  <form id="event-form">
+    <div class="dialog-heading"><div><p class="eyebrow">EVENT</p><h2 id="event-dialog-title">予定を追加</h2></div><button type="button" class="icon-button close-dialog">×</button></div>
+    <input id="event-id" type="hidden">
+    <label>予定名<input id="event-title" type="text" required maxlength="120"></label>
+    <div class="form-row"><label>日付<input id="event-date" type="date" required></label><label>開始時刻<input id="event-start" type="time"></label></div>
+    <div class="form-row"><label>終了時刻<input id="event-end" type="time"></label><label>カテゴリ<select id="event-color"><option value="blue">ブルー</option><option value="purple">パープル</option><option value="green">グリーン</option><option value="orange">オレンジ</option><option value="pink">ピンク</option></select></label></div>
+    <label>詳細<textarea id="event-notes" rows="3" maxlength="1000"></textarea></label>
+    <label class="check-row"><input id="event-reminder" type="checkbox">通知を設定する</label>
+    <div class="dialog-actions"><button id="delete-event" type="button" class="danger-button hidden">削除</button><span class="action-spacer"></span><button type="button" class="secondary-button close-dialog">キャンセル</button><button type="submit" class="primary-button">保存する</button></div>
+  </form>
+</dialog>
 
-          <section class="panel tasks-panel">
-            <div class="section-heading">
-              <div>
-                <p class="eyebrow">TO DO</p>
-                <h2>やることリスト</h2>
-              </div>
+<dialog id="task-dialog" class="editor-dialog">
+  <form id="task-form">
+    <div class="dialog-heading"><div><p class="eyebrow">TASK</p><h2 id="task-dialog-title">タスクを追加</h2></div><button type="button" class="icon-button close-dialog">×</button></div>
+    <input id="task-id" type="hidden">
+    <label>タスク名<input id="task-title" type="text" required maxlength="120"></label>
+    <label>期限<input id="task-date" type="date"></label>
+    <label>メモ<textarea id="task-notes" rows="2" maxlength="500"></textarea></label>
+    <div class="dialog-actions"><button id="delete-task" type="button" class="danger-button hidden">削除</button><span class="action-spacer"></span><button type="button" class="secondary-button close-dialog">キャンセル</button><button type="submit" class="primary-button">保存する</button></div>
+  </form>
+</dialog>
 
-              <button id="add-task-button" class="small-add" type="button" aria-label="タスクを追加">
-                ＋
-              </button>
-            </div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-            <form id="quick-task-form" class="quick-task-form">
-              <input
-                id="quick-task-title"
-                type="text"
-                maxlength="120"
-                placeholder="やることを入力..."
-                aria-label="やること">
-
-              <button type="submit">追加</button>
-            </form>
-
-            <div id="task-list" class="task-list"></div>
-          </section>
-        </aside>
-      </div>
-
-    </main>
-
-    <!-- バックアップ -->
-    <footer>
-      <span>データはこのブラウザ内に保存されます。</span>
-
-      <button id="export-button" class="text-button" type="button">
-        データを書き出す
-      </button>
-
-      <label class="text-button import-label">
-        読み込む
-        <input id="import-file" type="file" accept="application/json">
-      </label>
-    </footer>
-  </div>
-
-  <!-- 予定の追加・編集 -->
-  <dialog id="event-dialog" class="editor-dialog">
-    <form id="event-form">
-      <div class="dialog-heading">
-        <div>
-          <p class="eyebrow">EVENT</p>
-          <h2 id="event-dialog-title">予定を追加</h2>
-        </div>
-
-        <button type="button" class="icon-button close-dialog" aria-label="閉じる">
-          ×
-        </button>
-      </div>
-
-      <input id="event-id" type="hidden">
-
-      <label>
-        予定名
-        <input id="event-title" type="text" required maxlength="120" placeholder="例：部活、課題提出">
-      </label>
-
-      <div class="form-row">
-        <label>
-          日付
-          <input id="event-date" type="date" required>
-        </label>
-
-        <label>
-          開始時刻
-          <input id="event-start" type="time">
-        </label>
-      </div>
-
-      <div class="form-row">
-        <label>
-          終了時刻
-          <input id="event-end" type="time">
-        </label>
-
-        <label>
-          カテゴリ・色
-          <select id="event-color">
-            <option value="blue">ブルー</option>
-            <option value="purple">パープル</option>
-            <option value="green">グリーン</option>
-            <option value="orange">オレンジ</option>
-            <option value="pink">ピンク</option>
-          </select>
-        </label>
-      </div>
-
-      <label>
-        詳細
-        <textarea id="event-notes" rows="3" maxlength="1000" placeholder="場所や持ち物など"></textarea>
-      </label>
-
-      <label class="check-row">
-        <input id="event-reminder" type="checkbox">
-        通知を設定する
-      </label>
-
-      <p class="hint">
-        通知にはブラウザの許可が必要です。
-        アプリを閉じている間の通知は別途対応が必要です。
-      </p>
-
-      <div class="dialog-actions">
-        <button id="delete-event" type="button" class="danger-button hidden">
-          削除
-        </button>
-
-        <span class="action-spacer"></span>
-
-        <button type="button" class="secondary-button close-dialog">
-          キャンセル
-        </button>
-
-        <button type="submit" class="primary-button">
-          保存する
-        </button>
-      </div>
-    </form>
-  </dialog>
-
-  <!-- タスクの追加・編集 -->
-  <dialog id="task-dialog" class="editor-dialog">
-    <form id="task-form">
-      <div class="dialog-heading">
-        <div>
-          <p class="eyebrow">TASK</p>
-          <h2 id="task-dialog-title">タスクを追加</h2>
-        </div>
-
-        <button type="button" class="icon-button close-dialog" aria-label="閉じる">
-          ×
-        </button>
-      </div>
-
-      <input id="task-id" type="hidden">
-
-      <label>
-        タスク名
-        <input id="task-title" type="text" required maxlength="120" placeholder="例：英語の宿題">
-      </label>
-
-      <label>
-        期限（日付）
-        <input id="task-date" type="date">
-      </label>
-
-      <label>
-        メモ
-        <textarea id="task-notes" rows="2" maxlength="500" placeholder="必要なことをメモ"></textarea>
-      </label>
-
-      <div class="dialog-actions">
-        <button id="delete-task" type="button" class="danger-button hidden">
-          削除
-        </button>
-
-        <span class="action-spacer"></span>
-
-        <button type="button" class="secondary-button close-dialog">
-          キャンセル
-        </button>
-
-        <button type="submit" class="primary-button">
-          保存する
-        </button>
-      </div>
-    </form>
-  </dialog>
-
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
-
-  <!-- 既存のカレンダー・タスク機能 -->
-  <script src="./js/app.js"></script>
-
-  <!-- 画面切り替え -->
-  <script>
-    (() => {
-      const viewIds = [
-        "home-view",
-        "learning-view",
-        "practice-view",
-        "flashcard-view",
-        "record-view",
-        "calendar-view"
-      ];
-
-      function showView(viewId) {
-        if (!viewIds.includes(viewId)) return;
-
-        viewIds.forEach((id) => {
-          const view = document.getElementById(id);
-          if (view) {
-            view.hidden = id !== viewId;
-          }
-        });
-
-        document.querySelectorAll(".bottom-nav button").forEach((button) => {
-          const active = button.dataset.view === viewId;
-          button.classList.toggle("active", active);
-
-          if (active) {
-            button.setAttribute("aria-current", "page");
-          } else {
-            button.removeAttribute("aria-current");
-          }
-        });
-
-        window.scrollTo(0, 0);
-      }
-
-      document.querySelectorAll(".bottom-nav button[data-view]").forEach((button) => {
-        button.addEventListener("click", () => {
-          showView(button.dataset.view);
-        });
-      });
-
-      document.querySelectorAll("[data-go]").forEach((button) => {
-        button.addEventListener("click", () => {
-          showView(button.dataset.go);
-        });
-      });
-
-      showView("home-view");
-    })();
-  </script>
-
-  <!-- 下部ナビゲーション -->
-  <nav class="bottom-nav" aria-label="メインメニュー">
-    <button type="button" class="active" data-view="home-view">
-      <span>⌂</span>
-      ホーム
-    </button>
-
-    <button type="button" data-view="learning-view">
-      <span>▤</span>
-      学習
-    </button>
-
-    <button type="button" data-view="calendar-view">
-      <span>▦</span>
-      予定
-    </button>
-
-    <button type="button" data-view="record-view">
-      <span>▥</span>
-      記録
-    </button>
-  </nav>
-
-  <!-- PWA：Service Workerの登録 -->
-  <script>
-    if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => {
-        navigator.serviceWorker
-          .register("./service-worker.js")
-          .catch((error) => {
-            console.error("Service Workerの登録に失敗しました", error);
-          });
-      });
-    }
-  </script>
+<script src="./js/app.js"></script>
+<script>
+(() => {
+  const views = ["home-view", "study-items-view", "timer-view", "record-view", "calendar-view"];
+  function showView(id) {
+    if (!views.includes(id)) return;
+    views.forEach(viewId => {
+      const el = document.getElementById(viewId);
+      if (el) el.hidden = viewId !== id;
+    });
+    document.querySelectorAll(".bottom-nav [data-view]").forEach(button => {
+      const active = button.dataset.view === id;
+      button.classList.toggle("active", active);
+      if (active) button.setAttribute("aria-current", "page");
+      else button.removeAttribute("aria-current");
+    });
+    window.scrollTo(0, 0);
+    document.dispatchEvent(new CustomEvent("oneforall:viewchange", { detail: { view: id } }));
+  }
+  document.querySelectorAll(".bottom-nav [data-view]").forEach(button => {
+    button.addEventListener("click", () => showView(button.dataset.view));
+  });
+  document.querySelectorAll("[data-go]").forEach(button => {
+    button.addEventListener("click", () => showView(button.dataset.go));
+  });
+  showView("home-view");
+})();
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./service-worker.js").catch(console.error);
+  });
+}
+</script>
 </body>
 </html>
