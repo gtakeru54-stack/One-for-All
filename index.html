@@ -4,59 +4,130 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#070b19">
-  <meta name="description" content="予定・タスク・学習時間をまとめて管理する個人用アプリ">
+  <meta name="theme-color" content="#080b20">
+  <meta name="description" content="月階段を一段ずつ上がるように、学習時間と目標を記録するアプリ">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="One for All">
-  <title>One for All</title>
+  <title>One for All — Moon Staircase</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icons/app-icon.svg">
   <link rel="stylesheet" href="./css/style.css">
-
   <style>
+    :root {
+      --moon-bg: #080b20;
+      --moon-panel: rgba(20, 27, 58, .88);
+      --moon-line: rgba(177, 193, 255, .18);
+      --moon-text: #edf1ff;
+      --moon-muted: #a8b2d3;
+      --moon-blue: #a9dfff;
+      --moon-purple: #c4b5fd;
+      --moon-gold: #f5d995;
+    }
+    body {
+      background:
+        radial-gradient(ellipse at 80% 0%, rgba(92, 100, 190, .2), transparent 45%),
+        radial-gradient(ellipse at 0% 40%, rgba(73, 110, 175, .13), transparent 42%),
+        var(--moon-bg);
+      color: var(--moon-text);
+    }
     .app-view[hidden] { display: none !important; }
-    .study-page { max-width: 1000px; margin: 0 auto; }
-    .study-intro { margin: 12px 0 24px; color: var(--muted); line-height: 1.8; font-size: 13px; }
-    .study-stats { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; margin: 18px 0; }
-    .study-stat { min-width: 0; padding: 16px 12px; border: 1px solid var(--line); border-radius: 17px; background: var(--panel); }
-    .study-stat span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 10px; }
-    .study-stat strong { font-size: clamp(18px,4vw,26px); overflow-wrap: anywhere; }
-    .study-stat small { font-size: 11px; font-weight: normal; }
-    .study-section { margin-top: 24px; }
-    .study-section h3 { margin: 0 0 13px; font-size: 16px; }
-    .study-item-list { display: grid; gap: 10px; }
-    .study-item { display: flex; align-items: center; gap: 12px; padding: 15px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
-    .study-item-info { flex: 1; min-width: 0; }
-    .study-item-info strong { display: block; overflow-wrap: anywhere; }
-    .study-item-info small { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; }
-    .study-item-time { font-size: 12px; color: var(--primary); font-weight: 800; white-space: nowrap; }
-    .study-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-    .study-actions button { min-height: 40px; }
-    .study-empty { padding: 22px 14px; border: 1px dashed var(--line); border-radius: 15px; color: var(--muted); text-align: center; font-size: 13px; line-height: 1.8; }
-    .study-timer { padding: 24px 16px; text-align: center; border: 1px solid var(--line); border-radius: 22px; background: var(--panel); }
-    .study-timer-label { color: var(--muted); font-size: 12px; }
-    .study-clock { margin: 14px 0 20px; font-size: clamp(38px,10vw,64px); font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: .04em; }
-    .study-timer select { width: 100%; max-width: 400px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); margin: 12px auto 18px; }
-    .study-item-form { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; margin-bottom: 16px; }
-    .study-item-form input { min-width: 0; width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); }
-    .study-history { display: grid; gap: 8px; }
-    .study-history-row { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
-    .study-history-row span:last-child { color: var(--muted); text-align: right; }
-    .page-back { margin-bottom: 18px; }
-    .bottom-nav { position: fixed; z-index: 100; bottom: max(8px,env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); width: min(480px,calc(100% - 20px)); display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 4px; padding: 7px; border: 1px solid rgba(154,170,225,.25); border-radius: 20px; background: rgba(12,18,41,.96); box-shadow: 0 12px 36px rgba(0,0,0,.35); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
-    .bottom-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-width: 0; min-height: 50px; padding: 5px 2px; border: 0; border-radius: 13px; background: transparent; color: #a4acc8; font-size: 10px; font-weight: 700; cursor: pointer; }
-    .bottom-nav button span { font-size: 20px; line-height: 1.2; }
-    .bottom-nav button.active { background: #292f59; color: #a8e7ff; }
+    .moon-page { max-width: 1050px; margin: 0 auto; }
+    .moon-hero {
+      position: relative; overflow: hidden; padding: 26px 20px;
+      border: 1px solid var(--moon-line); border-radius: 24px;
+      background: linear-gradient(140deg, rgba(40, 51, 100, .78), rgba(16, 22, 50, .86));
+    }
+    .moon-hero:after {
+      content: "☾"; position: absolute; right: 18px; top: -28px;
+      font-size: 150px; line-height: 1; color: rgba(219, 229, 255, .09);
+      pointer-events: none;
+    }
+    .moon-kicker { color: var(--moon-blue); letter-spacing: .18em; font-size: 10px; font-weight: 800; }
+    .moon-hero h2 { position: relative; z-index: 1; margin: 10px 0; font-size: clamp(25px, 6vw, 38px); }
+    .moon-hero p { position: relative; z-index: 1; max-width: 550px; color: var(--moon-muted); line-height: 1.8; font-size: 13px; }
+    .moon-pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--moon-line); border-radius: 999px; padding: 7px 11px; color: var(--moon-blue); font-size: 11px; }
+    .moon-section { margin-top: 24px; }
+    .moon-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 13px; }
+    .moon-section-heading h3 { margin: 0; font-size: 16px; }
+    .moon-muted { color: var(--moon-muted); font-size: 12px; line-height: 1.7; }
+    .moon-stats { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; margin: 17px 0; }
+    .moon-stat { min-width: 0; padding: 15px 12px; border: 1px solid var(--moon-line); border-radius: 17px; background: var(--moon-panel); }
+    .moon-stat span { display: block; margin-bottom: 9px; color: var(--moon-muted); font-size: 11px; }
+    .moon-stat strong { display: block; overflow-wrap: anywhere; font-size: clamp(18px,4vw,25px); }
+    .moon-stat small { color: var(--moon-muted); font-size: 10px; }
+    .moon-panel { padding: 17px; border: 1px solid var(--moon-line); border-radius: 19px; background: var(--moon-panel); }
+    .moon-menu { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 11px; }
+    .moon-menu button { min-height: 125px; padding: 16px; text-align: left; border: 1px solid var(--moon-line); border-radius: 18px; background: linear-gradient(145deg, rgba(45, 55, 105, .65), rgba(17, 23, 52, .88)); color: var(--moon-text); cursor: pointer; }
+    .moon-menu button:active { transform: scale(.985); }
+    .moon-menu .moon-icon { display: block; margin-bottom: 11px; font-size: 25px; }
+    .moon-menu strong { display: block; margin-bottom: 5px; font-size: 14px; }
+    .moon-menu small { color: var(--moon-muted); font-size: 11px; line-height: 1.6; }
+    .moon-btn { border: 1px solid var(--moon-line); border-radius: 12px; padding: 10px 13px; background: rgba(42, 52, 98, .7); color: var(--moon-text); cursor: pointer; font-weight: 700; }
+    .moon-btn.primary { background: linear-gradient(135deg, #b8dfff, #c8c0ff); border-color: transparent; color: #101631; }
+    .moon-btn.danger { color: #ffc2cb; }
+    .moon-btn:disabled { opacity: .45; cursor: not-allowed; }
+    .moon-field { display: grid; gap: 6px; margin-bottom: 13px; }
+    .moon-field label { color: var(--moon-muted); font-size: 12px; }
+    .moon-field input, .moon-field select, .moon-field textarea,
+    .moon-select, .moon-date {
+      width: 100%; min-width: 0; padding: 12px; border: 1px solid var(--moon-line);
+      border-radius: 11px; background: #101632; color: var(--moon-text); font: inherit;
+    }
+    .moon-field input:focus, .moon-field select:focus, .moon-field textarea:focus { outline: 2px solid rgba(169,223,255,.55); }
+    .moon-grid-2 { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+    .moon-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .moon-row > * { min-width: 0; }
+    .moon-list { display: grid; gap: 10px; }
+    .moon-item { display: flex; align-items: center; gap: 11px; padding: 14px; border: 1px solid var(--moon-line); border-radius: 15px; background: rgba(18, 25, 54, .8); }
+    .moon-item-main { flex: 1; min-width: 0; }
+    .moon-item-main strong { display: block; overflow-wrap: anywhere; }
+    .moon-item-main small { display: block; margin-top: 5px; color: var(--moon-muted); font-size: 11px; }
+    .moon-item-total { color: var(--moon-blue); font-size: 12px; font-weight: 800; white-space: nowrap; }
+    .moon-empty { padding: 22px 14px; border: 1px dashed var(--moon-line); border-radius: 15px; color: var(--moon-muted); text-align: center; font-size: 12px; line-height: 1.8; }
+    .moon-timer { padding: 25px 16px; text-align: center; border: 1px solid var(--moon-line); border-radius: 22px; background: linear-gradient(155deg, rgba(36, 47, 94, .8), rgba(13, 19, 45, .94)); }
+    .moon-clock { margin: 17px 0 20px; font-size: clamp(39px,10vw,64px); font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: .05em; }
+    .moon-progress-track { height: 9px; overflow: hidden; border-radius: 99px; background: rgba(173,188,235,.13); }
+    .moon-progress-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, #93d9ff, #c5b6ff); transition: width .3s ease; }
+    .moon-progress-text { margin-top: 8px; color: var(--moon-muted); font-size: 11px; }
+    .moon-chart-wrap { overflow-x: auto; }
+    .moon-chart { display: block; width: 100%; min-width: 300px; height: auto; }
+    .moon-chart text { fill: var(--moon-muted); font-size: 10px; font-family: system-ui,sans-serif; }
+    .moon-chart .chart-grid { stroke: rgba(177,193,255,.13); stroke-width: 1; }
+    .moon-chart .chart-bar { fill: url(#moonBarGradient); }
+    .moon-chart .chart-bar-empty { fill: rgba(169,223,255,.15); }
+    .moon-chart .chart-line { stroke: #a9dfff; stroke-width: 2.5; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+    .moon-history { display: grid; gap: 8px; }
+    .moon-history-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--moon-line); font-size: 12px; }
+    .moon-history-row span:last-child { color: var(--moon-muted); text-align: right; }
+    .moon-stepper { display: flex; flex-direction: column; gap: 7px; align-items: flex-start; margin: 18px 0; }
+    .moon-step { padding: 10px 13px; border: 1px solid var(--moon-line); border-radius: 11px; background: rgba(169,223,255,.05); color: var(--moon-muted); font-size: 12px; }
+    .moon-step:nth-child(2) { margin-left: 13px; }
+    .moon-step:nth-child(3) { margin-left: 26px; }
+    .moon-step:nth-child(4) { margin-left: 39px; }
+    .moon-step:nth-child(5) { margin-left: 52px; }
+    .moon-step.current { border-color: rgba(169,223,255,.65); background: rgba(169,223,255,.15); color: var(--moon-text); box-shadow: 0 0 22px rgba(169,223,255,.08); }
+    .moon-goal-card { padding: 14px; border: 1px solid var(--moon-line); border-radius: 15px; background: rgba(16,22,50,.7); }
+    .moon-goal-card + .moon-goal-card { margin-top: 10px; }
+    .moon-goal-card strong { display: block; margin-bottom: 7px; }
+    .moon-goal-card small { color: var(--moon-muted); }
+    .moon-nav { position: fixed; z-index: 100; bottom: max(8px,env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); width: min(500px,calc(100% - 20px)); display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 4px; padding: 7px; border: 1px solid rgba(177,193,255,.23); border-radius: 20px; background: rgba(10,15,37,.96); box-shadow: 0 12px 36px rgba(0,0,0,.4); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+    .moon-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-width: 0; min-height: 49px; padding: 5px 2px; border: 0; border-radius: 13px; background: transparent; color: #a8b2d3; font-size: 10px; font-weight: 700; cursor: pointer; }
+    .moon-nav button span { font-size: 20px; line-height: 1.2; }
+    .moon-nav button.active { background: #27325b; color: var(--moon-blue); }
     body { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
-    .record-filter { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
-    .record-filter input { padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); }
+    .page-back { margin-bottom: 18px; }
+    @media(min-width:700px) {
+      .moon-menu { grid-template-columns: repeat(4,minmax(0,1fr)); }
+    }
     @media(max-width:560px) {
-      .study-stats { gap: 7px; }
-      .study-stat { padding: 13px 9px; }
-      .study-stat span { font-size: 10px; }
-      .study-item { padding: 12px; gap: 8px; }
-      .study-item-time { font-size: 11px; }
+      .moon-stats { gap: 7px; }
+      .moon-stat { padding: 12px 9px; }
+      .moon-stat span { font-size: 10px; }
+      .moon-grid-2 { grid-template-columns: 1fr; }
+      .moon-item { padding: 11px; gap: 8px; }
+      .moon-item-total { font-size: 11px; }
+      .moon-hero { padding: 22px 16px; }
     }
   </style>
 </head>
@@ -64,97 +135,156 @@
 <div class="app-shell">
   <header class="topbar">
     <div>
-      <p class="eyebrow">ONE FOR ALL / COSMOS</p>
+      <p class="eyebrow">ONE FOR ALL / MOON STAIRCASE</p>
       <h1>One for All <span>Learn</span></h1>
     </div>
     <button id="add-event-top" class="primary-button" type="button">＋ 予定を追加</button>
   </header>
 
   <main>
-    <section id="home-view" class="app-view study-page">
-      <p class="eyebrow">YOUR LEARNING UNIVERSE</p>
-      <h2>学習ホーム</h2>
-      <p class="study-intro">勉強した時間を記録して、自分の積み重ねを確認しよう。</p>
-
-      <div class="study-stats">
-        <div class="study-stat"><span>今日の学習時間</span><strong id="home-today">0分</strong></div>
-        <div class="study-stat"><span>直近7日間</span><strong id="home-week">0分</strong></div>
-        <div class="study-stat"><span>累計学習時間</span><strong id="home-total">0分</strong></div>
+    <section id="home-view" class="app-view moon-page">
+      <div class="moon-hero">
+        <div class="moon-kicker">YOUR JOURNEY TO THE MOON</div>
+        <h2>月階段</h2>
+        <p>今日の一歩が、未来の自分につながる。学習時間を積み重ね、自分だけの階段を上がっていこう。</p>
+        <span class="moon-pill">☾ 一段ずつ、未来へ</span>
       </div>
 
-      <section class="study-section">
-        <h3>学習メニュー</h3>
-        <div class="main-menu">
-          <button class="menu-card" type="button" data-go="study-items-view">
-            <span class="menu-icon">📚</span><strong>学習項目</strong><small>好きな項目を登録・管理</small>
-          </button>
-          <button class="menu-card" type="button" data-go="timer-view">
-            <span class="menu-icon">⏱️</span><strong>学習タイマー</strong><small>勉強時間を計測して保存</small>
-          </button>
-          <button class="menu-card" type="button" data-go="record-view">
-            <span class="menu-icon">📈</span><strong>学習記録</strong><small>日別・項目別の時間を確認</small>
-          </button>
-          <button class="menu-card" type="button" data-go="calendar-view">
-            <span class="menu-icon">🗓️</span><strong>予定・タスク</strong><small>予定ややることを管理</small>
-          </button>
+      <div class="moon-stats">
+        <div class="moon-stat"><span>今日の学習</span><strong id="home-today">0分</strong></div>
+        <div class="moon-stat"><span>今週の学習</span><strong id="home-week">0分</strong></div>
+        <div class="moon-stat"><span>累計学習</span><strong id="home-total">0分</strong></div>
+      </div>
+
+      <section class="moon-section">
+        <div class="moon-section-heading"><h3>月への道しるべ</h3><span class="moon-pill">MOON PATH</span></div>
+        <div class="moon-panel">
+          <div id="home-goal-summary" class="moon-muted">目標を設定すると、ここに進捗が表示されます。</div>
+          <div id="home-staircase" class="moon-stepper"></div>
+          <div id="home-goal-progress"></div>
+          <div class="moon-row" style="margin-top:14px">
+            <button class="moon-btn primary" type="button" data-go="goals-view">目標を設定する</button>
+            <button class="moon-btn" type="button" data-go="charts-view">学習グラフを見る</button>
+          </div>
         </div>
       </section>
 
-      <section class="study-section">
-        <h3>最近の学習</h3>
-        <div id="home-recent" class="study-history"></div>
+      <section class="moon-section">
+        <div class="moon-section-heading"><h3>学習メニュー</h3></div>
+        <div class="moon-menu">
+          <button type="button" data-go="study-items-view"><span class="moon-icon">📚</span><strong>学習項目</strong><small>科目や単元を登録・管理</small></button>
+          <button type="button" data-go="timer-view"><span class="moon-icon">⏱️</span><strong>学習タイマー</strong><small>勉強時間を計測して保存</small></button>
+          <button type="button" data-go="charts-view"><span class="moon-icon">🌙</span><strong>学習グラフ</strong><small>週・月・年の記録を確認</small></button>
+          <button type="button" data-go="goals-view"><span class="moon-icon">🎓</span><strong>志望大学・目標</strong><small>目標と達成率を設定</small></button>
+        </div>
+      </section>
+
+      <section class="moon-section">
+        <div class="moon-section-heading"><h3>最近の学習記録</h3><button class="moon-btn" type="button" data-go="records-view">すべて見る</button></div>
+        <div id="home-recent" class="moon-history"></div>
       </section>
     </section>
 
-    <section id="study-items-view" class="app-view study-page" hidden>
-      <button class="secondary-button page-back" type="button" data-go="home-view">← ホームへ戻る</button>
-      <p class="eyebrow">MY STUDY CATEGORIES</p>
-      <h2>学習項目</h2>
-      <p class="study-intro">科目でも、単元でも、自分が使いやすい名前で登録できます。</p>
-      <form id="study-item-form" class="study-item-form">
-        <input id="study-item-name" type="text" maxlength="80" placeholder="例：英語、数学、英単語" required>
-        <button class="primary-button" type="submit">追加</button>
+    <section id="study-items-view" class="app-view moon-page" hidden>
+      <button class="moon-btn page-back" type="button" data-go="home-view">← ホームへ戻る</button>
+      <p class="moon-kicker">YOUR OWN CONSTELLATION</p><h2>学習項目</h2>
+      <p class="moon-muted">科目でも単元でも、好きな名前で登録できます。</p>
+      <form id="study-item-form" class="moon-panel" style="margin:16px 0">
+        <div class="moon-field"><label for="study-item-name">新しい学習項目</label><input id="study-item-name" type="text" maxlength="80" placeholder="例：英語、数学、英単語" required></div>
+        <button class="moon-btn primary" type="submit">＋ 項目を追加</button>
       </form>
-      <div id="study-item-list" class="study-item-list"></div>
+      <div id="study-item-list" class="moon-list"></div>
     </section>
 
-    <section id="timer-view" class="app-view study-page" hidden>
-      <button class="secondary-button page-back" type="button" data-go="home-view">← ホームへ戻る</button>
-      <p class="eyebrow">FOCUS TIMER</p>
-      <h2>学習タイマー</h2>
-      <p class="study-intro">勉強する項目を選んで開始。終了すると実際の経過時間を記録します。</p>
-      <div class="study-timer">
-        <div class="study-timer-label" id="timer-status">計測していません</div>
-        <select id="timer-item-select" aria-label="学習項目"></select>
-        <div id="timer-clock" class="study-clock">00:00:00</div>
-        <div class="study-actions" style="justify-content:center">
-          <button id="timer-start" class="primary-button" type="button">▶ 開始</button>
-          <button id="timer-stop" class="secondary-button" type="button" disabled>■ 終了して保存</button>
+    <section id="timer-view" class="app-view moon-page" hidden>
+      <button class="moon-btn page-back" type="button" data-go="home-view">← ホームへ戻る</button>
+      <p class="moon-kicker">FOCUS UNDER THE MOON</p><h2>学習タイマー</h2>
+      <p class="moon-muted">項目を選んで開始。終了すると経過時間が学習記録に保存されます。</p>
+      <div class="moon-timer" style="margin-top:18px">
+        <div id="timer-status" class="moon-muted">計測していません</div>
+        <div class="moon-field" style="max-width:400px;margin:12px auto 0">
+          <label for="timer-item-select">学習する項目</label><select id="timer-item-select" class="moon-select"></select>
+        </div>
+        <div id="timer-clock" class="moon-clock">00:00:00</div>
+        <div class="moon-row" style="justify-content:center">
+          <button id="timer-start" class="moon-btn primary" type="button">▶ 開始</button>
+          <button id="timer-stop" class="moon-btn" type="button" disabled>■ 終了して保存</button>
         </div>
       </div>
-      <p class="study-intro">計測中に画面を切り替えても、開始時刻から経過時間を計算します。アプリを閉じている間も、再び開くと計測を続けられます。</p>
+      <p class="moon-muted" style="margin-top:14px">画面を切り替えたりアプリを閉じたりしても、開始時刻から経過時間を計算します。</p>
     </section>
 
-    <section id="record-view" class="app-view study-page" hidden>
-      <button class="secondary-button page-back" type="button" data-go="home-view">← ホームへ戻る</button>
-      <p class="eyebrow">STUDY HISTORY</p>
-      <h2>学習記録</h2>
-      <div class="study-stats">
-        <div class="study-stat"><span>今日</span><strong id="record-today">0分</strong></div>
-        <div class="study-stat"><span>直近7日間</span><strong id="record-week">0分</strong></div>
-        <div class="study-stat"><span>累計</span><strong id="record-total">0分</strong></div>
+    <section id="charts-view" class="app-view moon-page" hidden>
+      <button class="moon-btn page-back" type="button" data-go="home-view">← ホームへ戻る</button>
+      <p class="moon-kicker">YOUR PROGRESS, IN LIGHT</p><h2>学習グラフ</h2>
+      <p class="moon-muted">時間の積み重ねを、月階段の記録として振り返ろう。</p>
+      <div class="moon-panel" style="margin-top:16px">
+        <div class="moon-field"><label for="chart-period">集計期間</label><select id="chart-period"><option value="week">週（月曜日〜日曜日）</option><option value="month">月</option><option value="year">年</option></select></div>
+        <div class="moon-field"><label for="chart-type">グラフの種類</label><select id="chart-type"><option value="daily">日ごとの学習時間</option><option value="subject">科目別の学習時間</option></select></div>
+        <div class="moon-row" style="justify-content:space-between">
+          <button id="chart-prev" class="moon-btn" type="button">← 前へ</button>
+          <strong id="chart-period-label">今週</strong>
+          <button id="chart-next" class="moon-btn" type="button">次へ →</button>
+        </div>
       </div>
-      <section class="study-section">
-        <h3>項目別の累計</h3>
-        <div id="record-by-item" class="study-item-list"></div>
+      <div class="moon-stats">
+        <div class="moon-stat"><span>この期間</span><strong id="chart-period-total">0分</strong></div>
+        <div class="moon-stat"><span>1日平均</span><strong id="chart-average">0分</strong></div>
+        <div class="moon-stat"><span>目標達成率</span><strong id="chart-goal-rate">—</strong></div>
+      </div>
+      <div class="moon-panel">
+        <div class="moon-section-heading"><h3 id="chart-title">日ごとの学習時間</h3><span class="moon-pill">MOON DATA</span></div>
+        <div id="study-chart" class="moon-chart-wrap"></div>
+        <p id="chart-caption" class="moon-muted" style="margin-top:10px"></p>
+      </div>
+      <section class="moon-section">
+        <div class="moon-section-heading"><h3>この期間の内訳</h3></div>
+        <div id="chart-breakdown" class="moon-list"></div>
       </section>
-      <section class="study-section">
-        <h3>日付で絞り込む</h3>
-        <div class="record-filter">
-          <input id="record-date" type="date" aria-label="記録の日付">
-          <button id="record-date-clear" class="secondary-button" type="button">解除</button>
+    </section>
+
+    <section id="goals-view" class="app-view moon-page" hidden>
+      <button class="moon-btn page-back" type="button" data-go="home-view">← ホームへ戻る</button>
+      <p class="moon-kicker">YOUR DESTINATION</p><h2>志望大学・目標設定</h2>
+      <p class="moon-muted">行きたい場所と、そこへ向かうための目標を設定します。設定内容はこの端末に保存されます。</p>
+      <form id="goal-form" class="moon-panel" style="margin-top:16px">
+        <div class="moon-section-heading"><h3>🎓 志望校</h3></div>
+        <div class="moon-field"><label for="goal-university">大学名</label><input id="goal-university" type="text" maxlength="120" placeholder="例：○○大学"></div>
+        <div class="moon-grid-2">
+          <div class="moon-field"><label for="goal-faculty">学部</label><input id="goal-faculty" type="text" maxlength="120" placeholder="例：工学部"></div>
+          <div class="moon-field"><label for="goal-department">学科・専攻</label><input id="goal-department" type="text" maxlength="120" placeholder="例：情報工学科"></div>
         </div>
-        <div id="record-history" class="study-history"></div>
+        <div class="moon-field"><label for="goal-exam-date">受験予定日（任意）</label><input id="goal-exam-date" type="date"></div>
+        <div class="moon-section-heading" style="margin-top:22px"><h3>⏳ 学習時間の目標</h3></div>
+        <div class="moon-grid-2">
+          <div class="moon-field"><label for="goal-daily">1日の目標（分）</label><input id="goal-daily" type="number" min="0" max="1440" step="5" placeholder="例：120"></div>
+          <div class="moon-field"><label for="goal-weekly">1週間の目標（分）</label><input id="goal-weekly" type="number" min="0" max="10080" step="30" placeholder="例：900"></div>
+        </div>
+        <div class="moon-field"><label for="goal-monthly">1か月の目標（分）</label><input id="goal-monthly" type="number" min="0" max="44640" step="60" placeholder="例：3600"></div>
+        <div class="moon-section-heading" style="margin-top:22px"><h3>📖 科目別の目標</h3></div>
+        <p class="moon-muted">登録済みの学習項目ごとに、1週間の目標時間を設定できます。</p>
+        <div id="subject-goal-fields"></div>
+        <button class="moon-btn primary" type="submit" style="margin-top:14px">目標を保存する</button>
+      </form>
+      <section class="moon-section">
+        <div class="moon-section-heading"><h3>現在の目標と進捗</h3></div>
+        <div id="goal-progress-list"></div>
+      </section>
+    </section>
+
+    <section id="records-view" class="app-view moon-page" hidden>
+      <button class="moon-btn page-back" type="button" data-go="home-view">← ホームへ戻る</button>
+      <p class="moon-kicker">MEMORY OF YOUR STEPS</p><h2>学習記録</h2>
+      <div class="moon-stats">
+        <div class="moon-stat"><span>今日</span><strong id="record-today">0分</strong></div>
+        <div class="moon-stat"><span>今週</span><strong id="record-week">0分</strong></div>
+        <div class="moon-stat"><span>累計</span><strong id="record-total">0分</strong></div>
+      </div>
+      <section class="moon-section"><div class="moon-section-heading"><h3>項目別の累計</h3></div><div id="record-by-item" class="moon-list"></div></section>
+      <section class="moon-section">
+        <div class="moon-section-heading"><h3>日付で絞り込む</h3></div>
+        <div class="moon-row"><input id="record-date" class="moon-date" type="date" aria-label="記録の日付" style="flex:1"><button id="record-date-clear" class="moon-btn" type="button">解除</button></div>
+        <div id="record-history" class="moon-history" style="margin-top:12px"></div>
       </section>
     </section>
 
@@ -184,17 +314,17 @@
   </main>
 
   <footer>
-    <span>データはこの端末のブラウザ内に保存されます。</span>
+    <span>予定・タスク・学習記録はこの端末に保存されます。</span>
     <button id="export-button" class="text-button" type="button">データを書き出す</button>
     <label class="text-button import-label">読み込む<input id="import-file" type="file" accept="application/json"></label>
   </footer>
 </div>
 
-<nav class="bottom-nav" aria-label="メインメニュー">
-  <button type="button" class="active" data-view="home-view"><span>⌂</span>ホーム</button>
+<nav class="moon-nav" aria-label="メインメニュー">
+  <button type="button" class="active" data-view="home-view"><span>☾</span>ホーム</button>
   <button type="button" data-view="study-items-view"><span>▤</span>学習項目</button>
   <button type="button" data-view="calendar-view"><span>▦</span>予定</button>
-  <button type="button" data-view="record-view"><span>▥</span>記録</button>
+  <button type="button" data-view="charts-view"><span>▥</span>グラフ</button>
 </nav>
 
 <dialog id="event-dialog" class="editor-dialog">
@@ -226,34 +356,29 @@
 <script src="./js/app.js"></script>
 <script>
 (() => {
-  const views = ["home-view", "study-items-view", "timer-view", "record-view", "calendar-view"];
+  const ids = ["home-view","study-items-view","timer-view","charts-view","goals-view","records-view","calendar-view"];
   function showView(id) {
-    if (!views.includes(id)) return;
-    views.forEach(viewId => {
+    if (!ids.includes(id)) return;
+    ids.forEach(viewId => {
       const el = document.getElementById(viewId);
       if (el) el.hidden = viewId !== id;
     });
-    document.querySelectorAll(".bottom-nav [data-view]").forEach(button => {
+    document.querySelectorAll(".moon-nav [data-view]").forEach(button => {
       const active = button.dataset.view === id;
       button.classList.toggle("active", active);
-      if (active) button.setAttribute("aria-current", "page");
+      if (active) button.setAttribute("aria-current","page");
       else button.removeAttribute("aria-current");
     });
-    window.scrollTo(0, 0);
-    document.dispatchEvent(new CustomEvent("oneforall:viewchange", { detail: { view: id } }));
+    window.scrollTo(0,0);
+    document.dispatchEvent(new CustomEvent("oneforall:viewchange",{detail:{view:id}}));
   }
-  document.querySelectorAll(".bottom-nav [data-view]").forEach(button => {
-    button.addEventListener("click", () => showView(button.dataset.view));
-  });
-  document.querySelectorAll("[data-go]").forEach(button => {
-    button.addEventListener("click", () => showView(button.dataset.go));
-  });
+  document.querySelectorAll(".moon-nav [data-view]").forEach(button => button.addEventListener("click",() => showView(button.dataset.view)));
+  document.querySelectorAll("[data-go]").forEach(button => button.addEventListener("click",() => showView(button.dataset.go)));
+  document.addEventListener("oneforall:navigate",event => showView(event.detail.view));
   showView("home-view");
 })();
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./service-worker.js").catch(console.error);
-  });
+  window.addEventListener("load",() => navigator.serviceWorker.register("./service-worker.js").catch(console.error));
 }
 </script>
 </body>
