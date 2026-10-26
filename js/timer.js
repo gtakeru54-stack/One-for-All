@@ -1,131 +1,165 @@
-/* =========================================================
-   ONE FOR ALL — COSMOS
-   js/timer.js
-   学習タイマー
-   ========================================================= */
 
 "use strict";
 
-import { formatDuration } from "./storage.js";
-import { addStudyRecord } from "./study.js";
+/*
+ * ONE FOR ALL — COSMOS
+ * js/timer.js
+ *
+ * 学習タイマーシステム
+ *
+ * 担当:
+ * - 計測開始
+ * - 一時停止
+ * - 計測再開
+ * - 経過時間の取得
+ * - 計測終了
+ *
+ * 学習記録への保存は、呼び出し元に任せます。
+ * このファイル単体では学習記録を追加しません。
+ */
 
-let startedAt = null;
-let elapsedBeforeStart = 0;
-let intervalId = null;
-let timerRunning = false;
-
-function getSelectedStudy() {
-  return {
-    subjectId: document.querySelector("#timer-subject")?.value || "",
-    itemId: document.querySelector("#timer-item")?.value || ""
-  };
-}
-
-function getDisplaySeconds() {
-  if (!timerRunning || startedAt === null) {
-    return elapsedBeforeStart;
+export class StudyTimer {
+  constructor() {
+    this.running = false;
+    this.startedAt = 0;
+    this.elapsedBeforePause = 0;
   }
 
-  return elapsedBeforeStart + Math.floor((Date.now() - startedAt) / 1000);
-}
+  /**
+   * タイマーを開始します。
+   */
+  start() {
+    if (this.running) {
+      return {
+        success: false,
+        error: "タイマーはすでに動作しています。"
+      };
+    }
 
-function renderTimer() {
-  const seconds = getDisplaySeconds();
+    this.startedAt = Date.now();
+    this.running = true;
 
-  const displayTargets = [
-    "#timer-display",
-    "#timer-time",
-    "[data-timer-display]"
-  ];
-
-  displayTargets.forEach((selector) => {
-    const element = document.querySelector(selector);
-    if (element) element.textContent = formatDuration(seconds);
-  });
-
-  const startButton = document.querySelector("#timer-start");
-  const pauseButton = document.querySelector("#timer-pause");
-  const stopButton = document.querySelector("#timer-stop");
-
-  if (startButton) startButton.disabled = timerRunning;
-  if (pauseButton) pauseButton.disabled = !timerRunning;
-  if (stopButton) stopButton.disabled = seconds <= 0;
-
-  document.querySelectorAll("[data-timer-status]").forEach((element) => {
-    element.textContent = timerRunning ? "計測中" : "停止中";
-    element.classList.toggle("is-running", timerRunning);
-  });
-}
-
-function startTimer() {
-  if (timerRunning) return;
-
-  timerRunning = true;
-  startedAt = Date.now();
-
-  intervalId = window.setInterval(renderTimer, 250);
-  renderTimer();
-}
-
-function pauseTimer() {
-  if (!timerRunning) return;
-
-  elapsedBeforeStart = getDisplaySeconds();
-  timerRunning = false;
-  startedAt = null;
-
-  if (intervalId !== null) {
-    window.clearInterval(intervalId);
-    intervalId = null;
+    return {
+      success: true,
+      seconds: this.getSeconds()
+    };
   }
 
-  renderTimer();
-}
+  /**
+   * タイマーを一時停止します。
+   */
+  pause() {
+    if (!this.running) {
+      return {
+        success: false,
+        error: "タイマーは動作していません。"
+      };
+    }
 
-function resetTimer() {
-  pauseTimer();
-  elapsedBeforeStart = 0;
-  renderTimer();
-}
+    this.elapsedBeforePause = this.getSeconds();
+    this.startedAt = 0;
+    this.running = false;
 
-function saveTimerRecord() {
-  const seconds = getDisplaySeconds();
-
-  if (seconds <= 0) {
-    resetTimer();
-    return;
+    return {
+      success: true,
+      seconds: this.elapsedBeforePause
+    };
   }
 
-  const selected = getSelectedStudy();
+  /**
+   * 一時停止したタイマーを再開します。
+   */
+  resume() {
+    if (this.running) {
+      return {
+        success: false,
+        error: "タイマーはすでに動作しています。"
+      };
+    }
 
-  addStudyRecord({
-    ...selected,
-    seconds,
-    source: "timer"
-  });
+    this.startedAt = Date.now();
+    this.running = true;
 
-  resetTimer();
+    return {
+      success: true,
+      seconds: this.getSeconds()
+    };
+  }
 
-  const toast = document.querySelector("#toast");
-  if (toast) {
-    toast.textContent = "学習時間を記録しました";
-    toast.classList.add("visible");
-    window.setTimeout(() => toast.classList.remove("visible"), 2200);
+  /**
+   * 現在までの経過時間を秒単位で返します。
+   */
+  getSeconds() {
+    const currentElapsed = this.running
+      ? Math.floor((Date.now() - this.startedAt) / 1000)
+      : 0;
+
+    return Math.max(
+      0,
+      this.elapsedBeforePause + currentElapsed
+    );
+  }
+
+  /**
+   * タイマーの状態を返します。
+   */
+  getState() {
+    return {
+      running: this.running,
+      seconds: this.getSeconds()
+    };
+  }
+
+  /**
+   * 計測を終了し、計測時間を返します。
+   * このメソッドは学習記録の保存までは行いません。
+   */
+  finish() {
+    const seconds = this.getSeconds();
+
+    this.reset();
+
+    return {
+      success: seconds > 0,
+      seconds
+    };
+  }
+
+  /**
+   * タイマーを初期状態に戻します。
+   */
+  reset() {
+    this.running = false;
+    this.startedAt = 0;
+    this.elapsedBeforePause = 0;
   }
 }
 
-export function initTimer() {
-  document.querySelector("#timer-start")?.addEventListener("click", startTimer);
-  document.querySelector("#timer-pause")?.addEventListener("click", pauseTimer);
-  document.querySelector("#timer-stop")?.addEventListener("click", saveTimerRecord);
+/**
+ * 表示用の HH:MM:SS 形式に変換します。
+ */
+export function formatTimerClock(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
 
-  document.querySelector("#timer-reset")?.addEventListener("click", resetTimer);
+  const hours = String(Math.floor(total / 3600)).padStart(2, "0");
+  const minutes = String(Math.floor((total % 3600) / 60)).padStart(2, "0");
+  const remainingSeconds = String(total % 60).padStart(2, "0");
 
-  window.addEventListener("cosmos:starttimer", () => {
-    const panel = document.querySelector("#timer-panel");
-    panel?.scrollIntoView({ behavior: "smooth", block: "center" });
-    startTimer();
-  });
+  return `${hours}:${minutes}:${remainingSeconds}`;
+}
 
-  renderTimer();
+/**
+ * 表示用の学習時間に変換します。
+ */
+export function formatStudyDuration(seconds) {
+  const totalMinutes = Math.floor(
+    Math.max(0, Number(seconds) || 0) / 60
+  );
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  return hours > 0
+    ? `${hours}時間${minutes}分`
+    : `${minutes}分`;
 }
