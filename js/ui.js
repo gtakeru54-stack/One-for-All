@@ -1,32 +1,20 @@
 
-// =========================================================
-// ONE FOR ALL COSMOS
-// js/ui.js
-// 共通UI・画面遷移・ボタン操作・メッセージ管理
-// =========================================================
+/* =========================================================
+   ONE FOR ALL COSMOS
+   js/ui.js
+   共通UI・画面遷移連携・ダイアログ・メッセージ管理
+   ========================================================= */
 
 "use strict";
 
-import { initNavigation, showView } from "./navigation.js";
+import {
+  COSMOS_VIEWS,
+  initNavigation,
+  showView
+} from "./navigation.js";
 
 const $ = (selector, root = document) =>
   root.querySelector(selector);
-
-const $$ = (selector, root = document) =>
-  Array.from(root.querySelectorAll(selector));
-
-const VALID_VIEWS = [
-  "home",
-  "calendar",
-  "study",
-  "statistics",
-  "goals",
-  "rocket",
-  "economy",
-  "countdown",
-  "notifications",
-  "settings"
-];
 
 let messageTimer = null;
 let initialized = false;
@@ -35,20 +23,21 @@ let initialized = false;
    メッセージ表示
    --------------------------------------------------------- */
 
-export function showMessage(message, type = "info", duration = 2800) {
-  let element =
+export function showMessage(
+  message,
+  type = "info",
+  duration = 2800
+) {
+  const element =
+    $("#cosmos-message") ||
     $("#cosmos-toast") ||
     $("#toast") ||
     $("#message-area") ||
     $("#message");
 
   if (!element) {
-    element = document.createElement("div");
-    element.id = "cosmos-toast";
-    element.className = "toast";
-    element.setAttribute("role", "status");
-    element.setAttribute("aria-live", "polite");
-    document.body.appendChild(element);
+    console.warn("[COSMOS]", String(message ?? ""));
+    return null;
   }
 
   if (messageTimer !== null) {
@@ -57,18 +46,18 @@ export function showMessage(message, type = "info", duration = 2800) {
   }
 
   element.textContent = String(message ?? "");
-  element.className = "toast";
+  element.classList.remove("success", "error", "info");
+  element.classList.add(type);
 
-  if (type === "success") {
-    element.classList.add("success");
-  } else if (type === "error") {
-    element.classList.add("error");
-    element.setAttribute("role", "alert");
-    element.setAttribute("aria-live", "assertive");
-  } else {
-    element.setAttribute("role", "status");
-    element.setAttribute("aria-live", "polite");
-  }
+  element.setAttribute(
+    "role",
+    type === "error" ? "alert" : "status"
+  );
+
+  element.setAttribute(
+    "aria-live",
+    type === "error" ? "assertive" : "polite"
+  );
 
   element.hidden = false;
 
@@ -84,19 +73,18 @@ export function showMessage(message, type = "info", duration = 2800) {
 
 /* ---------------------------------------------------------
    画面切り替え
+   実際の切り替えは navigation.js に任せる
    --------------------------------------------------------- */
 
 export function navigateTo(viewName) {
   const name = String(viewName ?? "").trim();
 
-  if (!VALID_VIEWS.includes(name)) {
+  if (!COSMOS_VIEWS.includes(name)) {
     showMessage("指定された画面が見つかりません。", "error");
     return false;
   }
 
-  const target = document.getElementById(`view-${name}`);
-
-  if (!target) {
+  if (!document.getElementById(`view-${name}`)) {
     showMessage(
       `画面「${name}」がHTMLに見つかりません。`,
       "error"
@@ -104,44 +92,12 @@ export function navigateTo(viewName) {
     return false;
   }
 
-  // navigation.js の既存処理を利用する
-  showView(name);
+  const changed = showView(name);
 
-  // hidden 属性と表示状態を明示的に同期する
-  $$("main > section[id^='view-']").forEach((section) => {
-    const isTarget = section.id === `view-${name}`;
-
-    section.hidden = !isTarget;
-    section.classList.toggle("active", isTarget);
-    section.setAttribute(
-      "aria-hidden",
-      isTarget ? "false" : "true"
-    );
-  });
-
-  // 下部メニューの選択状態を更新する
-  $$("[data-view]").forEach((button) => {
-    const buttonView = button.dataset.view;
-    const isActive = buttonView === name;
-
-    button.classList.toggle("active", isActive);
-
-    if (isActive) {
-      button.setAttribute("aria-current", "page");
-    } else {
-      button.removeAttribute("aria-current");
-    }
-  });
-
-  // 現在の画面を記録
-  document.body.dataset.currentView = name;
-
-  // 別モジュールが画面更新に反応できるよう通知
-  document.dispatchEvent(
-    new CustomEvent("cosmos:viewchange", {
-      detail: { view: name }
-    })
-  );
+  if (!changed) {
+    showMessage("画面の切り替えに失敗しました。", "error");
+    return false;
+  }
 
   window.scrollTo({
     top: 0,
@@ -156,18 +112,23 @@ export function navigateTo(viewName) {
    --------------------------------------------------------- */
 
 export function closeDialog(target) {
-  let dialog = target;
-
-  if (typeof target === "string") {
-    dialog = document.querySelector(target);
-  }
+  const dialog =
+    typeof target === "string"
+      ? $(target)
+      : target;
 
   if (!dialog) {
     return false;
   }
 
-  if (typeof dialog.close === "function" && dialog.open) {
-    dialog.close();
+  if (
+    dialog.tagName === "DIALOG" &&
+    typeof dialog.close === "function"
+  ) {
+    if (dialog.open) {
+      dialog.close();
+    }
+
     return true;
   }
 
@@ -183,11 +144,10 @@ export function closeDialog(target) {
    --------------------------------------------------------- */
 
 export function openDialog(target) {
-  let dialog = target;
-
-  if (typeof target === "string") {
-    dialog = document.querySelector(target);
-  }
+  const dialog =
+    typeof target === "string"
+      ? $(target)
+      : target;
 
   if (!dialog) {
     showMessage("ダイアログが見つかりません。", "error");
@@ -195,8 +155,8 @@ export function openDialog(target) {
   }
 
   if (
-    typeof dialog.showModal === "function" &&
-    dialog.tagName === "DIALOG"
+    dialog.tagName === "DIALOG" &&
+    typeof dialog.showModal === "function"
   ) {
     if (!dialog.open) {
       dialog.showModal();
@@ -213,26 +173,8 @@ export function openDialog(target) {
 }
 
 /* ---------------------------------------------------------
-   画面操作用の共通イベント
+   共通ボタン操作
    --------------------------------------------------------- */
-
-function handleNavigationClick(event) {
-  const button = event.target.closest("[data-view]");
-
-  if (!button) {
-    return;
-  }
-
-  const viewName = button.dataset.view;
-
-  if (!viewName) {
-    return;
-  }
-
-  event.preventDefault();
-
-  navigateTo(viewName);
-}
 
 function handleActionClick(event) {
   const button = event.target.closest("[data-action]");
@@ -245,13 +187,13 @@ function handleActionClick(event) {
 
   switch (action) {
     case "navigate": {
-      const viewName =
+      const destination =
         button.dataset.target ||
         button.dataset.viewTarget;
 
-      if (viewName) {
+      if (destination) {
         event.preventDefault();
-        navigateTo(viewName);
+        navigateTo(destination);
       } else {
         showMessage("移動先が設定されていません。", "error");
       }
@@ -261,8 +203,8 @@ function handleActionClick(event) {
 
     case "close-message": {
       const message =
-        button.closest(".toast") ||
-        $("#cosmos-toast");
+        button.closest("#cosmos-message, .toast") ||
+        $("#cosmos-message");
 
       if (message) {
         message.hidden = true;
@@ -274,14 +216,14 @@ function handleActionClick(event) {
     case "close-dialog": {
       const selector = button.dataset.target;
 
-      if (selector) {
-        closeDialog(selector);
-      } else {
-        const dialog = button.closest("dialog, .app-dialog");
+      const dialog = selector
+        ? $(selector)
+        : button.closest("dialog, .app-dialog");
 
-        if (dialog) {
-          closeDialog(dialog);
-        }
+      if (dialog) {
+        closeDialog(dialog);
+      } else {
+        showMessage("閉じるダイアログが見つかりません。", "error");
       }
 
       break;
@@ -300,11 +242,9 @@ function handleActionClick(event) {
     }
 
     case "show-message": {
-      const message =
-        button.dataset.message ||
-        "操作を受け付けました。";
-
-      showMessage(message);
+      showMessage(
+        button.dataset.message || "操作を受け付けました。"
+      );
       break;
     }
 
@@ -313,25 +253,22 @@ function handleActionClick(event) {
         top: 0,
         behavior: "smooth"
       });
-
       break;
     }
 
     case "back": {
-      const currentView =
-        document.body.dataset.currentView || "home";
+      const current = document.body.dataset.currentView || "home";
 
-      if (currentView !== "home") {
+      if (current !== "home") {
         navigateTo("home");
       }
-
       break;
     }
 
-    default: {
-      // 機能モジュール側で処理するアクションは妨げない
+    default:
+      // 学習・カレンダー・経済などの機能は
+      // それぞれの機能モジュールで処理する。
       break;
-    }
   }
 }
 
@@ -343,19 +280,20 @@ function handleDialogBackdropClick(event) {
   const dialog = event.target;
 
   if (
+    typeof HTMLDialogElement !== "undefined" &&
     dialog instanceof HTMLDialogElement &&
     dialog.open &&
     dialog.dataset.closeOnBackdrop === "true"
   ) {
     const rect = dialog.getBoundingClientRect();
 
-    const inside =
+    const clickedInside =
       event.clientX >= rect.left &&
       event.clientX <= rect.right &&
       event.clientY >= rect.top &&
       event.clientY <= rect.bottom;
 
-    if (!inside) {
+    if (!clickedInside) {
       dialog.close();
     }
   }
@@ -366,22 +304,27 @@ function handleDialogBackdropClick(event) {
    --------------------------------------------------------- */
 
 function initializeInitialView() {
-  const existing = document.body.dataset.currentView;
+  const current = document.body.dataset.currentView;
 
-  if (existing && VALID_VIEWS.includes(existing)) {
-    if (document.getElementById(`view-${existing}`)) {
-      navigateTo(existing);
-      return;
-    }
+  if (
+    current &&
+    COSMOS_VIEWS.includes(current) &&
+    document.getElementById(`view-${current}`)
+  ) {
+    navigateTo(current);
+    return;
   }
 
-  const activeSection = $("main > section.active[id^='view-']");
+  const active = $("main > section.active[id^='view-']");
 
-  if (activeSection) {
-    const viewName = activeSection.id.replace("view-", "");
+  if (active) {
+    const name = active.id.replace("view-", "");
 
-    if (VALID_VIEWS.includes(viewName)) {
-      navigateTo(viewName);
+    if (
+      COSMOS_VIEWS.includes(name) &&
+      document.getElementById(`view-${name}`)
+    ) {
+      navigateTo(name);
       return;
     }
   }
@@ -390,7 +333,7 @@ function initializeInitialView() {
 }
 
 /* ---------------------------------------------------------
-   UI 初期化
+   初期化
    --------------------------------------------------------- */
 
 export function initUI() {
@@ -400,19 +343,11 @@ export function initUI() {
 
   initialized = true;
 
-  // navigation.js の共通ナビゲーション処理
+  // data-view による画面切り替えは navigation.js のみで処理
   initNavigation();
 
-  // イベント委譲により、後から追加されたボタンにも対応
-  document.addEventListener(
-    "click",
-    handleNavigationClick
-  );
-
-  document.addEventListener(
-    "click",
-    handleActionClick
-  );
+  // data-action はこのファイルで共通処理する
+  document.addEventListener("click", handleActionClick);
 
   document.addEventListener(
     "click",
@@ -427,7 +362,7 @@ export function initUI() {
 }
 
 /* ---------------------------------------------------------
-   UI 終了処理
+   終了処理
    --------------------------------------------------------- */
 
 export function destroyUI() {
@@ -435,15 +370,7 @@ export function destroyUI() {
     return;
   }
 
-  document.removeEventListener(
-    "click",
-    handleNavigationClick
-  );
-
-  document.removeEventListener(
-    "click",
-    handleActionClick
-  );
+  document.removeEventListener("click", handleActionClick);
 
   document.removeEventListener(
     "click",
