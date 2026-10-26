@@ -17,12 +17,7 @@
 
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="stylesheet" href="./css/style.css">
-
-  <link
-    rel="icon"
-    href="./icons/app-icon.svg"
-    type="image/svg+xml"
-  >
+  <link rel="icon" href="./icons/app-icon.svg" type="image/svg+xml">
 </head>
 
 <body>
@@ -30,6 +25,18 @@
 
     <!-- ヘッダー -->
     <header class="app-header">
+
+      <button
+        id="menu-open"
+        class="icon-button menu-toggle"
+        type="button"
+        aria-label="メニューを開く"
+        aria-controls="side-menu"
+        aria-expanded="false"
+      >
+        <span aria-hidden="true">☰</span>
+      </button>
+
       <button
         class="brand-button"
         type="button"
@@ -60,6 +67,103 @@
       </div>
     </header>
 
+    <!-- メニュー表示中の背景 -->
+    <button
+      id="menu-backdrop"
+      class="menu-backdrop"
+      type="button"
+      aria-label="メニューを閉じる"
+      hidden
+      tabindex="-1"
+    ></button>
+
+    <!-- 左側から開くメニュー -->
+    <aside
+      id="side-menu"
+      class="side-menu"
+      aria-label="アプリメニュー"
+      aria-hidden="true"
+      inert
+    >
+      <div class="side-menu-header">
+        <div class="side-menu-brand">
+          <span class="brand-icon" aria-hidden="true">✦</span>
+          <div class="brand-text">
+            <strong>ONE FOR ALL</strong>
+            <small>COSMOS MENU</small>
+          </div>
+        </div>
+
+        <button
+          id="menu-close"
+          class="icon-button"
+          type="button"
+          aria-label="メニューを閉じる"
+        >×</button>
+      </div>
+
+      <p class="side-menu-label">MAIN MENU</p>
+
+      <nav class="side-menu-navigation" aria-label="すべての画面">
+
+        <button type="button" class="side-menu-item active" data-view="home">
+          <span class="side-menu-icon" aria-hidden="true">⌂</span>
+          <span>ホーム</span>
+        </button>
+
+        <button type="button" class="side-menu-item" data-view="study">
+          <span class="side-menu-icon" aria-hidden="true">✎</span>
+          <span>学習記録</span>
+        </button>
+
+        <button type="button" class="side-menu-item" data-view="calendar">
+          <span class="side-menu-icon" aria-hidden="true">▦</span>
+          <span>カレンダー・時間割</span>
+        </button>
+
+        <button type="button" class="side-menu-item" data-view="statistics">
+          <span class="side-menu-icon" aria-hidden="true">◷</span>
+          <span>学習統計</span>
+        </button>
+
+        <button type="button" class="side-menu-item" data-view="goals">
+          <span class="side-menu-icon" aria-hidden="true">◎</span>
+          <span>目標マップ</span>
+        </button>
+
+        <button type="button" class="side-menu-item" data-view="rocket">
+          <span class="side-menu-icon" aria-hidden="true">🚀</span>
+          <span>宇宙開発・ロケット</span>
+        </button>
+
+        <button type="button" class="side-menu-item" data-view="economy">
+          <span class="side-menu-icon" aria-hidden="true">◇</span>
+          <span>経済</span>
+        </button>
+
+        <button type="button" class="side-menu-item" data-view="countdown">
+          <span class="side-menu-icon" aria-hidden="true">⌛</span>
+          <span>カウントダウン</span>
+        </button>
+
+        <button type="button" class="side-menu-item" data-view="notifications">
+          <span class="side-menu-icon" aria-hidden="true">♧</span>
+          <span>通知</span>
+        </button>
+
+        <button type="button" class="side-menu-item" data-view="settings">
+          <span class="side-menu-icon" aria-hidden="true">⚙</span>
+          <span>設定</span>
+        </button>
+
+      </nav>
+
+      <div class="side-menu-footer">
+        <span aria-hidden="true">✦</span>
+        <span>YOUR UNIVERSE, YOUR FUTURE.</span>
+      </div>
+    </aside>
+
     <!-- メインコンテンツ -->
     <main id="app-main">
 
@@ -73,9 +177,7 @@
         <div class="welcome-section">
           <p class="eyebrow">YOUR UNIVERSE</p>
           <h1>今日も、未来へ。</h1>
-          <p class="muted">
-            小さな一歩が、未来の自分をつくる。
-          </p>
+          <p class="muted">小さな一歩が、未来の自分をつくる。</p>
         </div>
 
         <section class="panel today-panel">
@@ -84,11 +186,9 @@
               <p class="eyebrow">TODAY'S STUDY</p>
               <h2>今日の学習</h2>
             </div>
-            <button
-              class="text-button"
-              type="button"
-              data-view="statistics"
-            >詳細 →</button>
+            <button class="text-button" type="button" data-view="statistics">
+              詳細 →
+            </button>
           </div>
 
           <div class="today-study-content">
@@ -111,10 +211,9 @@
             ></div>
           </div>
 
-          <p
-            id="home-goal-message"
-            class="muted"
-          >まずは5分から始めよう。</p>
+          <p id="home-goal-message" class="muted">
+            まずは5分から始めよう。
+          </p>
 
           <button
             class="primary-button start-study-button"
@@ -132,20 +231,16 @@
               <p class="eyebrow">YOUR JOURNEY</p>
               <h2>宇宙への進行状況</h2>
             </div>
-            <button
-              class="text-button"
-              type="button"
-              data-view="rocket"
-            >詳細 →</button>
+            <button class="text-button" type="button" data-view="rocket">
+              詳細 →
+            </button>
           </div>
 
           <div class="rocket-summary">
             <div class="rocket-icon" aria-hidden="true">🚀</div>
             <div class="rocket-info">
               <strong id="home-rocket-level">LEVEL 1</strong>
-              <p id="home-rocket-exp" class="muted">
-                EXP 0
-              </p>
+              <p id="home-rocket-exp" class="muted">EXP 0</p>
               <div class="progress-track">
                 <div
                   id="home-rocket-progress"
@@ -167,11 +262,9 @@
               <p class="eyebrow">UP NEXT</p>
               <h2>今日の予定</h2>
             </div>
-            <button
-              class="text-button"
-              type="button"
-              data-view="calendar"
-            >一覧 →</button>
+            <button class="text-button" type="button" data-view="calendar">
+              一覧 →
+            </button>
           </div>
 
           <div id="home-schedule-list" class="empty-state">
@@ -185,11 +278,9 @@
               <p class="eyebrow">COUNTDOWN</p>
               <h2>目標の日まで</h2>
             </div>
-            <button
-              class="text-button"
-              type="button"
-              data-view="countdown"
-            >一覧 →</button>
+            <button class="text-button" type="button" data-view="countdown">
+              一覧 →
+            </button>
           </div>
 
           <div id="home-countdown-list" class="empty-state">
@@ -209,42 +300,30 @@
         <div class="page-heading">
           <p class="eyebrow">STUDY SPACE</p>
           <h1>学習記録</h1>
-          <p class="muted">
-            学んだ内容と時間を記録しよう。
-          </p>
+          <p class="muted">学んだ内容と時間を記録しよう。</p>
         </div>
 
         <section class="panel">
           <h2>学習タイマー</h2>
 
-          <div
-            id="study-timer-display"
-            class="timer-display"
-            aria-live="off"
-          >00:00:00</div>
+          <div id="study-timer-display" class="timer-display" aria-live="off">
+            00:00:00
+          </div>
 
           <p id="study-timer-status" class="muted">
             学習を始める準備ができています。
           </p>
 
           <div class="button-row">
-            <button
-              class="primary-button"
-              type="button"
-              data-action="timer-start"
-            >開始</button>
-
-            <button
-              class="secondary-button"
-              type="button"
-              data-action="timer-pause"
-            >一時停止</button>
-
-            <button
-              class="secondary-button"
-              type="button"
-              data-action="timer-finish"
-            >記録して終了</button>
+            <button class="primary-button" type="button" data-action="timer-start">
+              開始
+            </button>
+            <button class="secondary-button" type="button" data-action="timer-pause">
+              一時停止
+            </button>
+            <button class="secondary-button" type="button" data-action="timer-finish">
+              記録して終了
+            </button>
           </div>
         </section>
 
@@ -254,40 +333,20 @@
           </div>
 
           <form id="manual-study-form">
-            <label for="manual-study-subject">
-              科目
-            </label>
-            <select
-              id="manual-study-subject"
-              name="subjectId"
-              required
-            >
+            <label for="manual-study-subject">科目</label>
+            <select id="manual-study-subject" name="subjectId" required>
               <option value="">科目を選択</option>
             </select>
 
-            <label for="manual-study-item">
-              学習項目
-            </label>
-            <select
-              id="manual-study-item"
-              name="itemId"
-            >
+            <label for="manual-study-item">学習項目</label>
+            <select id="manual-study-item" name="itemId">
               <option value="">項目を選択（任意）</option>
             </select>
 
-            <label for="manual-study-date">
-              学習日
-            </label>
-            <input
-              id="manual-study-date"
-              name="date"
-              type="date"
-              required
-            >
+            <label for="manual-study-date">学習日</label>
+            <input id="manual-study-date" name="date" type="date" required>
 
-            <label for="manual-study-minutes">
-              学習時間（分）
-            </label>
+            <label for="manual-study-minutes">学習時間（分）</label>
             <input
               id="manual-study-minutes"
               name="minutes"
@@ -299,9 +358,7 @@
               placeholder="例：30"
             >
 
-            <label for="manual-study-note">
-              メモ（任意）
-            </label>
+            <label for="manual-study-note">メモ（任意）</label>
             <textarea
               id="manual-study-note"
               name="note"
@@ -309,32 +366,27 @@
               placeholder="何を勉強した？"
             ></textarea>
 
-            <button
-              class="primary-button"
-              type="submit"
-            >学習時間を追加</button>
+            <button class="primary-button" type="submit">
+              学習時間を追加
+            </button>
           </form>
         </section>
 
         <section class="panel">
           <div class="section-heading">
             <h2>科目・学習項目</h2>
-            <button
-              class="secondary-button"
-              type="button"
-              data-action="add-subject"
-            >＋ 科目</button>
+            <button class="secondary-button" type="button" data-action="add-subject">
+              ＋ 科目
+            </button>
           </div>
 
           <div id="study-subject-list" class="list-container">
             <p class="muted">科目を読み込んでいます。</p>
           </div>
 
-          <button
-            class="secondary-button"
-            type="button"
-            data-action="add-study-item"
-          >＋ 学習項目</button>
+          <button class="secondary-button" type="button" data-action="add-study-item">
+            ＋ 学習項目
+          </button>
         </section>
 
         <section class="panel">
@@ -361,11 +413,9 @@
         <section class="panel">
           <div class="section-heading">
             <h2>カレンダー</h2>
-            <button
-              class="primary-button"
-              type="button"
-              data-action="add-event"
-            >＋ 予定</button>
+            <button class="primary-button" type="button" data-action="add-event">
+              ＋ 予定
+            </button>
           </div>
 
           <div class="calendar-controls">
@@ -391,10 +441,7 @@
           </div>
 
           <div id="calendar-selected-date">
-            <h3 id="calendar-selected-date-label">
-              日付を選択してください
-            </h3>
-
+            <h3 id="calendar-selected-date-label">日付を選択してください</h3>
             <div id="calendar-event-list">
               <p class="muted">予定はありません。</p>
             </div>
@@ -404,11 +451,9 @@
         <section class="panel">
           <div class="section-heading">
             <h2>週間時間割</h2>
-            <button
-              class="secondary-button"
-              type="button"
-              data-action="edit-timetable"
-            >編集</button>
+            <button class="secondary-button" type="button" data-action="edit-timetable">
+              編集
+            </button>
           </div>
 
           <div class="timetable-scroll">
@@ -425,12 +470,9 @@
                   <th>日</th>
                 </tr>
               </thead>
-
               <tbody id="timetable-body">
                 <tr>
-                  <td colspan="8">
-                    時間割データを読み込んでいます。
-                  </td>
+                  <td colspan="8">時間割データを読み込んでいます。</td>
                 </tr>
               </tbody>
             </table>
@@ -440,11 +482,9 @@
         <section class="panel">
           <div class="section-heading">
             <h2>タスク</h2>
-            <button
-              class="primary-button"
-              type="button"
-              data-action="add-task"
-            >＋ タスク</button>
+            <button class="primary-button" type="button" data-action="add-task">
+              ＋ タスク
+            </button>
           </div>
 
           <div id="task-list" class="list-container">
@@ -464,31 +504,22 @@
         <div class="page-heading">
           <p class="eyebrow">YOUR PROGRESS</p>
           <h1>学習統計</h1>
-          <p class="muted">
-            積み重ねを振り返ろう。
-          </p>
+          <p class="muted">積み重ねを振り返ろう。</p>
         </div>
 
         <section class="panel">
           <h2>今日の学習目標</h2>
-
           <div class="stat-highlight">
             <strong id="stats-today-time">0分</strong>
             <span id="stats-today-goal">目標 120分</span>
           </div>
-
           <div class="progress-track">
-            <div
-              id="stats-today-progress"
-              class="progress-fill"
-              style="width: 0%"
-            ></div>
+            <div id="stats-today-progress" class="progress-fill" style="width: 0%"></div>
           </div>
         </section>
 
         <section class="panel">
           <h2>科目別の学習時間</h2>
-
           <div class="chart-container">
             <canvas
               id="subject-doughnut-chart"
@@ -496,14 +527,11 @@
               role="img"
             ></canvas>
           </div>
-
-          <div id="subject-chart-legend" class="chart-legend">
-          </div>
+          <div id="subject-chart-legend" class="chart-legend"></div>
         </section>
 
         <section class="panel">
           <h2>日別の学習時間</h2>
-
           <div class="chart-container chart-container-tall">
             <canvas
               id="daily-bar-chart"
@@ -515,7 +543,6 @@
 
         <section class="panel">
           <h2>週別の学習時間</h2>
-
           <div class="chart-container chart-container-tall">
             <canvas
               id="weekly-bar-chart"
@@ -527,7 +554,6 @@
 
         <section class="panel">
           <h2>月別の学習時間</h2>
-
           <div class="chart-container chart-container-tall">
             <canvas
               id="monthly-bar-chart"
@@ -549,9 +575,7 @@
         <div class="page-heading">
           <p class="eyebrow">YOUR DESTINATION</p>
           <h1>目標マップ</h1>
-          <p class="muted">
-            星をつないで、月を目指そう。
-          </p>
+          <p class="muted">星をつないで、月を目指そう。</p>
         </div>
 
         <section class="panel">
@@ -559,13 +583,8 @@
             <strong id="goal-map-completion">0%</strong>
             <span>マップの達成率</span>
           </div>
-
           <div class="progress-track">
-            <div
-              id="goal-map-progress"
-              class="progress-fill"
-              style="width: 0%"
-            ></div>
+            <div id="goal-map-progress" class="progress-fill" style="width: 0%"></div>
           </div>
         </section>
 
@@ -575,44 +594,31 @@
             class="goal-map-canvas"
             aria-label="月を目指す目標マップ"
           >
-            <p class="muted">
-              目標マップを読み込んでいます。
-            </p>
+            <p class="muted">目標マップを読み込んでいます。</p>
           </div>
-
-          <button
-            class="primary-button"
-            type="button"
-            data-action="add-goal-map-node"
-          >＋ 目標を追加</button>
+          <button class="primary-button" type="button" data-action="add-goal-map-node">
+            ＋ 目標を追加
+          </button>
         </section>
 
         <section class="panel">
           <h2>目標一覧</h2>
-
           <div id="goal-list" class="list-container">
             <p class="muted">目標を読み込んでいます。</p>
           </div>
-
-          <button
-            class="secondary-button"
-            type="button"
-            data-action="add-goal"
-          >＋ 新しい目標</button>
+          <button class="secondary-button" type="button" data-action="add-goal">
+            ＋ 新しい目標
+          </button>
         </section>
 
         <section class="panel">
           <h2>習慣</h2>
-
           <div id="habit-list" class="list-container">
             <p class="muted">習慣を読み込んでいます。</p>
           </div>
-
-          <button
-            class="secondary-button"
-            type="button"
-            data-action="add-habit"
-          >＋ 習慣を追加</button>
+          <button class="secondary-button" type="button" data-action="add-habit">
+            ＋ 習慣を追加
+          </button>
         </section>
       </section>
 
@@ -627,35 +633,23 @@
         <div class="page-heading">
           <p class="eyebrow">COSMOS EXPLORATION</p>
           <h1>宇宙開発</h1>
-          <p class="muted">
-            学習を積み重ねて、宇宙を探索しよう。
-          </p>
+          <p class="muted">学習を積み重ねて、宇宙を探索しよう。</p>
         </div>
 
         <section class="panel rocket-showcase">
           <div id="rocket-visual" class="rocket-visual">
             <span aria-hidden="true">🚀</span>
           </div>
-
           <h2 id="rocket-name">COSMOS ROCKET</h2>
           <p id="rocket-level" class="muted">LEVEL 1</p>
-
           <div class="progress-track">
-            <div
-              id="rocket-exp-progress"
-              class="progress-fill"
-              style="width: 0%"
-            ></div>
+            <div id="rocket-exp-progress" class="progress-fill" style="width: 0%"></div>
           </div>
-
-          <p id="rocket-exp-label" class="muted">
-            EXP 0
-          </p>
+          <p id="rocket-exp-label" class="muted">EXP 0</p>
         </section>
 
         <section class="panel">
           <h2>ミッション</h2>
-
           <div id="mission-list" class="list-container">
             <p class="muted">ミッションを読み込んでいます。</p>
           </div>
@@ -663,7 +657,6 @@
 
         <section class="panel">
           <h2>ロケットパーツ</h2>
-
           <div id="rocket-parts-list" class="list-container">
             <p class="muted">パーツを読み込んでいます。</p>
           </div>
@@ -671,7 +664,6 @@
 
         <section class="panel">
           <h2>宇宙探索</h2>
-
           <div id="space-exploration-list" class="list-container">
             <p class="muted">探索情報を読み込んでいます。</p>
           </div>
@@ -689,46 +681,32 @@
         <div class="page-heading">
           <p class="eyebrow">COSMO ECONOMY</p>
           <h1>経済</h1>
-          <p class="muted">
-            残高と取引を管理しよう。
-          </p>
+          <p class="muted">残高と取引を管理しよう。</p>
         </div>
 
         <section class="panel balance-panel">
           <p class="eyebrow">CURRENT BALANCE</p>
           <strong id="economy-balance">0 COSMO</strong>
-          <p id="economy-net-worth" class="muted">
-            借入を含む状況を確認できます。
-          </p>
+          <p id="economy-net-worth" class="muted">借入を含む状況を確認できます。</p>
         </section>
 
         <section class="panel">
           <h2>取引</h2>
-
           <div class="button-row">
-            <button
-              class="primary-button"
-              type="button"
-              data-action="economy-deposit"
-            >入金</button>
-
-            <button
-              class="secondary-button"
-              type="button"
-              data-action="economy-withdraw"
-            >出金</button>
-
-            <button
-              class="secondary-button"
-              type="button"
-              data-action="economy-borrow"
-            >借入</button>
+            <button class="primary-button" type="button" data-action="economy-deposit">
+              入金
+            </button>
+            <button class="secondary-button" type="button" data-action="economy-withdraw">
+              出金
+            </button>
+            <button class="secondary-button" type="button" data-action="economy-borrow">
+              借入
+            </button>
           </div>
         </section>
 
         <section class="panel">
           <h2>借入・返済</h2>
-
           <div id="economy-loan-list" class="list-container">
             <p class="muted">借入情報を読み込んでいます。</p>
           </div>
@@ -736,7 +714,6 @@
 
         <section class="panel">
           <h2>取引履歴</h2>
-
           <div id="economy-transaction-list" class="list-container">
             <p class="muted">取引履歴はありません。</p>
           </div>
@@ -754,21 +731,16 @@
         <div class="page-heading">
           <p class="eyebrow">COUNTDOWN</p>
           <h1>目標の日まで</h1>
-          <p class="muted">
-            大切な日までの残り時間を確認しよう。
-          </p>
+          <p class="muted">大切な日までの残り時間を確認しよう。</p>
         </div>
 
         <section class="panel">
           <div class="section-heading">
             <h2>イベント一覧</h2>
-            <button
-              class="primary-button"
-              type="button"
-              data-action="add-countdown"
-            >＋ 追加</button>
+            <button class="primary-button" type="button" data-action="add-countdown">
+              ＋ 追加
+            </button>
           </div>
-
           <div id="countdown-list" class="list-container">
             <p class="muted">イベントはありません。</p>
           </div>
@@ -789,16 +761,12 @@
         </div>
 
         <section class="panel">
-          <p class="muted">
-            学習リマインダーやイベント通知を設定できます。
-          </p>
-
+          <p class="muted">学習リマインダーやイベント通知を設定できます。</p>
           <button
             class="primary-button"
             type="button"
             data-action="enable-notifications"
           >通知を設定</button>
-
           <div id="notification-list" class="list-container">
             <p class="muted">通知履歴はありません。</p>
           </div>
@@ -820,12 +788,8 @@
 
         <section class="panel">
           <h2>学習目標</h2>
-
           <form id="settings-study-form">
-            <label for="setting-daily-goal">
-              1日の目標（分）
-            </label>
-
+            <label for="setting-daily-goal">1日の目標（分）</label>
             <input
               id="setting-daily-goal"
               name="dailyGoalMinutes"
@@ -835,10 +799,7 @@
               required
             >
 
-            <label for="setting-weekly-goal">
-              1週間の目標（分）
-            </label>
-
+            <label for="setting-weekly-goal">1週間の目標（分）</label>
             <input
               id="setting-weekly-goal"
               name="weeklyGoalMinutes"
@@ -848,10 +809,7 @@
               required
             >
 
-            <label for="setting-minimum-action">
-              最小行動（分）
-            </label>
-
+            <label for="setting-minimum-action">最小行動（分）</label>
             <input
               id="setting-minimum-action"
               name="minimumActionMinutes"
@@ -861,10 +819,7 @@
               required
             >
 
-            <button
-              class="primary-button"
-              type="submit"
-            >設定を保存</button>
+            <button class="primary-button" type="submit">設定を保存</button>
           </form>
         </section>
 
@@ -880,79 +835,127 @@
             >
           </label>
 
-          <label for="setting-theme">
-            テーマ
-          </label>
-
+          <label for="setting-theme">テーマ</label>
           <select id="setting-theme" name="theme">
             <option value="cosmos">COSMOS</option>
             <option value="dark">ダーク</option>
           </select>
         </section>
+
+        <section class="panel">
+          <h2>下部ショートカット</h2>
+          <p class="muted">
+            画面下に常に表示しておきたい画面を選択できます。
+            選択しない場合、下部メニューは表示されません。
+          </p>
+
+          <div id="shortcut-settings" class="shortcut-settings">
+            <label class="setting-row">
+              <span>ホーム</span>
+              <input type="checkbox" name="bottomShortcut" value="home">
+            </label>
+            <label class="setting-row">
+              <span>学習記録</span>
+              <input type="checkbox" name="bottomShortcut" value="study">
+            </label>
+            <label class="setting-row">
+              <span>カレンダー・時間割</span>
+              <input type="checkbox" name="bottomShortcut" value="calendar">
+            </label>
+            <label class="setting-row">
+              <span>学習統計</span>
+              <input type="checkbox" name="bottomShortcut" value="statistics">
+            </label>
+            <label class="setting-row">
+              <span>目標マップ</span>
+              <input type="checkbox" name="bottomShortcut" value="goals">
+            </label>
+            <label class="setting-row">
+              <span>ロケット</span>
+              <input type="checkbox" name="bottomShortcut" value="rocket">
+            </label>
+            <label class="setting-row">
+              <span>経済</span>
+              <input type="checkbox" name="bottomShortcut" value="economy">
+            </label>
+            <label class="setting-row">
+              <span>カウントダウン</span>
+              <input type="checkbox" name="bottomShortcut" value="countdown">
+            </label>
+            <label class="setting-row">
+              <span>通知</span>
+              <input type="checkbox" name="bottomShortcut" value="notifications">
+            </label>
+            <label class="setting-row">
+              <span>設定</span>
+              <input type="checkbox" name="bottomShortcut" value="settings">
+            </label>
+          </div>
+
+          <p class="muted">
+            ※ この段階では選択欄とメニューの構造を追加しています。
+            保存・表示の切り替え処理はJavaScript側の対応後に動作します。
+          </p>
+        </section>
       </section>
 
     </main>
 
-    <!-- 下部メニュー -->
-    <nav class="bottom-navigation" aria-label="メインメニュー">
-      <button
-        type="button"
-        data-view="home"
-        class="nav-item active"
-        aria-label="ホーム"
-      >
+    <!-- 設定で選んだ画面だけを表示する下部メニュー -->
+    <nav
+      id="bottom-navigation"
+      class="bottom-navigation"
+      aria-label="下部ショートカット"
+      hidden
+    >
+      <button type="button" data-view="home" class="nav-item" data-shortcut="home">
         <span aria-hidden="true">⌂</span>
         <small>ホーム</small>
       </button>
 
-      <button
-        type="button"
-        data-view="study"
-        class="nav-item"
-        aria-label="学習"
-      >
+      <button type="button" data-view="study" class="nav-item" data-shortcut="study" hidden>
         <span aria-hidden="true">✎</span>
         <small>学習</small>
       </button>
 
-      <button
-        type="button"
-        data-view="calendar"
-        class="nav-item"
-        aria-label="予定"
-      >
+      <button type="button" data-view="calendar" class="nav-item" data-shortcut="calendar" hidden>
         <span aria-hidden="true">▦</span>
         <small>予定</small>
       </button>
 
-      <button
-        type="button"
-        data-view="goals"
-        class="nav-item"
-        aria-label="目標"
-      >
+      <button type="button" data-view="statistics" class="nav-item" data-shortcut="statistics" hidden>
+        <span aria-hidden="true">◷</span>
+        <small>統計</small>
+      </button>
+
+      <button type="button" data-view="goals" class="nav-item" data-shortcut="goals" hidden>
         <span aria-hidden="true">◎</span>
         <small>目標</small>
       </button>
 
-      <button
-        type="button"
-        data-view="rocket"
-        class="nav-item"
-        aria-label="宇宙"
-      >
+      <button type="button" data-view="rocket" class="nav-item" data-shortcut="rocket" hidden>
         <span aria-hidden="true">🚀</span>
         <small>宇宙</small>
       </button>
 
-      <button
-        type="button"
-        data-view="economy"
-        class="nav-item"
-        aria-label="経済"
-      >
+      <button type="button" data-view="economy" class="nav-item" data-shortcut="economy" hidden>
         <span aria-hidden="true">◇</span>
         <small>経済</small>
+      </button>
+
+      <button type="button" data-view="countdown" class="nav-item" data-shortcut="countdown" hidden>
+        <span aria-hidden="true">⌛</span>
+        <small>目標日</small>
+      </button>
+
+      <button type="button" data-view="notifications" class="nav-item" data-shortcut="notifications" hidden>
+        <span aria-hidden="true">♧</span>
+        <small>通知</small>
+      </button>
+
+      <button type="button" data-view="settings" class="nav-item" data-shortcut="settings" hidden>
+        <span aria-hidden="true">⚙</span>
+        <small>設定</small>
       </button>
     </nav>
 
@@ -963,7 +966,6 @@
     <form method="dialog" id="cosmos-dialog-form">
       <div class="dialog-header">
         <h2 id="cosmos-dialog-title">入力</h2>
-
         <button
           class="icon-button"
           type="submit"
@@ -975,17 +977,12 @@
       <div id="cosmos-dialog-content"></div>
 
       <div class="button-row dialog-actions">
-        <button
-          class="secondary-button"
-          type="submit"
-          value="cancel"
-        >キャンセル</button>
-
-        <button
-          class="primary-button"
-          type="button"
-          id="cosmos-dialog-confirm"
-        >決定</button>
+        <button class="secondary-button" type="submit" value="cancel">
+          キャンセル
+        </button>
+        <button class="primary-button" type="button" id="cosmos-dialog-confirm">
+          決定
+        </button>
       </div>
     </form>
   </dialog>
