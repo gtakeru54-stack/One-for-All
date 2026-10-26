@@ -1168,24 +1168,32 @@
       $("#target-explain").textContent = `${titles[selectedPeriod]}の目標達成率です。`;
     }
 
-    const history = $("#period-records");
+      const history = $("#period-records");
+
     if (history) {
       const recent = [...records].sort((a, b) => {
-  const dateA = String(a.createdAt || "");
-  const dateB = String(b.createdAt || "");
-  return dateB.localeCompare(dateA);
-});
-});
+        const dateA = String(a.createdAt || "");
+        const dateB = String(b.createdAt || "");
+        return dateB.localeCompare(dateA);
+      });
 
-      history.innerHTML = recent.length ? recent.map(record => `
-        <article class="subject-card panel">
-          <div>
-            <strong>${escapeHTML(subjectName(record.subjectId))}</strong>
-            <p class="muted">${escapeHTML(record.itemId ? itemName(record.itemId) : record.notes || "学習記録")} · ${formatDate(record.date)}</p>
-          </div>
-          <strong>${formatMinutes(record.seconds)}</strong>
-        </article>
-      `).join("") : '<p class="muted">この期間の記録はありません。</p>';
+      history.innerHTML = recent.length
+        ? recent.map(record => `
+            <article class="subject-card panel">
+              <div>
+                <strong>${escapeHTML(subjectName(record.subjectId))}</strong>
+                <p class="muted">
+                  ${escapeHTML(
+                    record.itemId
+                      ? itemName(record.itemId)
+                      : record.notes || "学習記録"
+                  )} · ${formatDate(record.date)}
+                </p>
+              </div>
+              <strong>${formatMinutes(record.seconds)}</strong>
+            </article>
+          `).join("")
+        : '<p class="muted">この期間の記録はありません。</p>';
     }
 
     drawChart(records);
