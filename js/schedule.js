@@ -110,14 +110,12 @@
     return d;
   };
 
-  const calendar = read(STORAGE.calendar, {
-    events: [],
-    tasks: []
-  });
+  // app.js と同じ保存先から予定・タスクを読み込む
+let calendarEvents = read(STORAGE.events, []);
+let calendarTasks = read(STORAGE.tasks, []);
 
-  if (!Array.isArray(calendar.events)) calendar.events = [];
-  if (!Array.isArray(calendar.tasks)) calendar.tasks = [];
-
+if (!Array.isArray(calendarEvents)) calendarEvents = [];
+if (!Array.isArray(calendarTasks)) calendarTasks = [];
   const study = read(STORAGE.study, {
     subjects: [],
     items: [],
