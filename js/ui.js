@@ -1,400 +1,578 @@
-
 /* =========================================================
-   ONE FOR ALL COSMOS
-   js/ui.js
-   共通UI・画面遷移連携・ダイアログ・メッセージ管理
-   ========================================================= */
+ONE FOR ALL COSMOS
+js/ui.js
+画面操作・左側メニュー・ダイアログ・メッセージ
+========================================================= */
 
-"use strict";
+“use strict”;
 
 import {
-  COSMOS_VIEWS,
-  initNavigation,
-  showView
-} from "./navigation.js";
+COSMOS_VIEWS,
+initNavigation,
+showView
+} from “./navigation.js”;
+
+/* =========================================================
+共通設定
+========================================================= */
 
 const $ = (selector, root = document) =>
-  root.querySelector(selector);
+root.querySelector(selector);
 
-let messageTimer = null;
+const $$ = (selector, root = document) =>
+Array.from(root.querySelectorAll(selector));
+
 let initialized = false;
 
-/* ---------------------------------------------------------
-   メッセージ表示
-   --------------------------------------------------------- */
+/* =========================================================
+メッセージ表示
+========================================================= */
 
-export function showMessage(
-  message,
-  type = "info",
-  duration = 2800
-) {
-  const element =
-    $("#cosmos-message") ||
-    $("#cosmos-toast") ||
-    $("#toast") ||
-    $("#message-area") ||
-    $("#message");
+let messageTimer = null;
 
-  if (!element) {
-    console.warn("[COSMOS]", String(message ?? ""));
-    return null;
-  }
+export function showMessage(message, type = “info”, duration = 3000) {
+const element =
+$(”#cosmos-message”) ||
+$(”#toast-message”) ||
+$(”#app-message”);
 
-  if (messageTimer !== null) {
-    clearTimeout(messageTimer);
-    messageTimer = null;
-  }
-
-  element.textContent = String(message ?? "");
-  element.classList.remove("success", "error", "info");
-  element.classList.add(type);
-
-  element.setAttribute(
-    "role",
-    type === "error" ? "alert" : "status"
-  );
-
-  element.setAttribute(
-    "aria-live",
-    type === "error" ? "assertive" : "polite"
-  );
-
-  element.hidden = false;
-
-  if (duration > 0) {
-    messageTimer = setTimeout(() => {
-      element.hidden = true;
-      messageTimer = null;
-    }, duration);
-  }
-
-  return element;
+if (!element) {
+console.warn(”[COSMOS] メッセージ表示領域がありません:”, message);
+return null;
 }
 
-/* ---------------------------------------------------------
-   画面切り替え
-   実際の切り替えは navigation.js に任せる
-   --------------------------------------------------------- */
+if (messageTimer !== null) {
+clearTimeout(messageTimer);
+messageTimer = null;
+}
+
+element.textContent = String(message);
+element.dataset.type = type;
+
+element.classList.remove(
+“is-visible”,
+“show”,
+“success”,
+“error”,
+“warning”,
+“info”
+);
+
+element.classList.add(type, “is-visible”, “show”);
+element.hidden = false;
+element.setAttribute(“role”, type === “error” ? “alert” : “status”);
+
+if (duration > 0) {
+messageTimer = setTimeout(() => {
+element.classList.remove(“is-visible”, “show”);
+messageTimer = null;
+}, duration);
+}
+
+return element;
+}
+
+/* =========================================================
+画面遷移
+========================================================= */
 
 export function navigateTo(viewName) {
-  const name = String(viewName ?? "").trim();
-
-  if (!COSMOS_VIEWS.includes(name)) {
-    showMessage("指定された画面が見つかりません。", "error");
-    return false;
-  }
-
-  if (!document.getElementById(`view-${name}`)) {
-    showMessage(
-      `画面「${name}」がHTMLに見つかりません。`,
-      "error"
-    );
-    return false;
-  }
-
-  const changed = showView(name);
-
-  if (!changed) {
-    showMessage("画面の切り替えに失敗しました。", "error");
-    return false;
-  }
-
-  window.scrollTo({
-    top: 0,
-    behavior: "auto"
-  });
-
-  return true;
+if (!COSMOS_VIEWS.includes(viewName)) {
+console.warn(”[COSMOS] 未登録の画面です:”, viewName);
+return false;
 }
 
-/* ---------------------------------------------------------
-   ダイアログを閉じる
-   --------------------------------------------------------- */
+const target = document.getElementById(view-${viewName});
 
-export function closeDialog(target) {
-  const dialog =
-    typeof target === "string"
-      ? $(target)
-      : target;
-
-  if (!dialog) {
-    return false;
-  }
-
-  if (
-    dialog.tagName === "DIALOG" &&
-    typeof dialog.close === "function"
-  ) {
-    if (dialog.open) {
-      dialog.close();
-    }
-
-    return true;
-  }
-
-  dialog.hidden = true;
-  dialog.classList.remove("open");
-  dialog.setAttribute("aria-hidden", "true");
-
-  return true;
+if (!target) {
+console.warn(
+[COSMOS] 移動先の画面がありません: #view-${viewName}
+);
+return false;
 }
 
-/* ---------------------------------------------------------
-   ダイアログを開く
-   --------------------------------------------------------- */
+const success = showView(viewName);
 
-export function openDialog(target) {
-  const dialog =
-    typeof target === "string"
-      ? $(target)
-      : target;
-
-  if (!dialog) {
-    showMessage("ダイアログが見つかりません。", "error");
-    return false;
-  }
-
-  if (
-    dialog.tagName === "DIALOG" &&
-    typeof dialog.showModal === "function"
-  ) {
-    if (!dialog.open) {
-      dialog.showModal();
-    }
-
-    return true;
-  }
-
-  dialog.hidden = false;
-  dialog.classList.add("open");
-  dialog.setAttribute("aria-hidden", "false");
-
-  return true;
+if (!success) {
+return false;
 }
 
-/* ---------------------------------------------------------
-   共通ボタン操作
-   --------------------------------------------------------- */
+closeMenu();
+
+window.scrollTo({
+top: 0,
+behavior: “auto”
+});
+
+return true;
+}
+
+/* =========================================================
+左側メニュー
+========================================================= */
+
+function getMenuDrawer() {
+return $(”#menu-drawer”) || $(”.menu-drawer”);
+}
+
+function getMenuBackdrop() {
+return $(”#menu-backdrop”) || $(”.menu-backdrop”);
+}
+
+function isMenuOpen() {
+const drawer = getMenuDrawer();
+
+return (
+document.body.classList.contains(“menu-open”) ||
+drawer?.classList.contains(“is-open”) === true
+);
+}
+
+export function openMenu() {
+const drawer = getMenuDrawer();
+const backdrop = getMenuBackdrop();
+
+if (!drawer) {
+console.warn(
+“[COSMOS] メニューが見つかりません。index.html のメニュー部分を確認してください。”
+);
+return false;
+}
+
+document.body.classList.add(“menu-open”);
+drawer.classList.add(“is-open”);
+drawer.setAttribute(“aria-hidden”, “false”);
+
+if (“inert” in drawer) {
+drawer.inert = false;
+}
+
+if (backdrop) {
+backdrop.classList.add(“is-open”);
+backdrop.hidden = false;
+backdrop.setAttribute(“aria-hidden”, “false”);
+}
+
+const toggle = $(”[data-menu-toggle]”);
+
+if (toggle) {
+toggle.setAttribute(“aria-expanded”, “true”);
+}
+
+const closeButton = $(
+“[data-menu-close]”,
+drawer
+);
+
+if (closeButton) {
+closeButton.focus({
+preventScroll: true
+});
+}
+
+return true;
+}
+
+export function closeMenu() {
+const drawer = getMenuDrawer();
+const backdrop = getMenuBackdrop();
+
+document.body.classList.remove(“menu-open”);
+
+if (drawer) {
+drawer.classList.remove(“is-open”);
+drawer.setAttribute(“aria-hidden”, “true”);
+
+if ("inert" in drawer) {
+  drawer.inert = true;
+}
+
+}
+
+if (backdrop) {
+backdrop.classList.remove(“is-open”);
+backdrop.setAttribute(“aria-hidden”, “true”);
+}
+
+const toggle = $(”[data-menu-toggle]”);
+
+if (toggle) {
+toggle.setAttribute(“aria-expanded”, “false”);
+}
+
+return true;
+}
+
+function toggleMenu() {
+if (isMenuOpen()) {
+closeMenu();
+} else {
+openMenu();
+}
+}
+
+/* =========================================================
+ダイアログ
+========================================================= */
+
+export function closeDialog(dialogId = “cosmos-dialog”) {
+const dialog = document.getElementById(dialogId);
+
+if (!dialog) {
+return false;
+}
+
+if (typeof dialog.close === “function” && dialog.open) {
+dialog.close();
+} else {
+dialog.removeAttribute(“open”);
+}
+
+return true;
+}
+
+export function openDialog(dialogId = “cosmos-dialog”) {
+const dialog = document.getElementById(dialogId);
+
+if (!dialog) {
+console.warn(”[COSMOS] ダイアログがありません:”, dialogId);
+return false;
+}
+
+if (typeof dialog.showModal === “function”) {
+if (!dialog.open) {
+dialog.showModal();
+}
+} else {
+dialog.setAttribute(“open”, “”);
+}
+
+return true;
+}
+
+/* =========================================================
+data-action 共通処理
+各機能専用の処理は既存の機能モジュールに任せる
+========================================================= */
 
 function handleActionClick(event) {
-  const button = event.target.closest("[data-action]");
+const element = event.target.closest(”[data-action]”);
 
-  if (!button) {
-    return;
-  }
-
-  const action = button.dataset.action;
-
-  switch (action) {
-    case "navigate": {
-      const destination =
-        button.dataset.target ||
-        button.dataset.viewTarget;
-
-      if (destination) {
-        event.preventDefault();
-        navigateTo(destination);
-      } else {
-        showMessage("移動先が設定されていません。", "error");
-      }
-
-      break;
-    }
-
-    case "close-message": {
-      const message =
-        button.closest("#cosmos-message, .toast") ||
-        $("#cosmos-message");
-
-      if (message) {
-        message.hidden = true;
-      }
-
-      break;
-    }
-
-    case "close-dialog": {
-      const selector = button.dataset.target;
-
-      const dialog = selector
-        ? $(selector)
-        : button.closest("dialog, .app-dialog");
-
-      if (dialog) {
-        closeDialog(dialog);
-      } else {
-        showMessage("閉じるダイアログが見つかりません。", "error");
-      }
-
-      break;
-    }
-
-    case "open-dialog": {
-      const selector = button.dataset.target;
-
-      if (selector) {
-        openDialog(selector);
-      } else {
-        showMessage("開くダイアログが設定されていません。", "error");
-      }
-
-      break;
-    }
-
-    case "show-message": {
-      showMessage(
-        button.dataset.message || "操作を受け付けました。"
-      );
-      break;
-    }
-
-    case "scroll-top": {
-      window.scrollTo({
-        top: 0,
-        behavior: "smooth"
-      });
-      break;
-    }
-
-    case "back": {
-      const current = document.body.dataset.currentView || "home";
-
-      if (current !== "home") {
-        navigateTo("home");
-      }
-      break;
-    }
-
-    default:
-      // 学習・カレンダー・経済などの機能は
-      // それぞれの機能モジュールで処理する。
-      break;
-  }
+if (!element) {
+return;
 }
 
-/* ---------------------------------------------------------
-   ダイアログの背景クリック
-   --------------------------------------------------------- */
+const action = element.dataset.action;
 
-function handleDialogBackdropClick(event) {
-  const dialog = event.target;
-
-  if (
-    typeof HTMLDialogElement !== "undefined" &&
-    dialog instanceof HTMLDialogElement &&
-    dialog.open &&
-    dialog.dataset.closeOnBackdrop === "true"
-  ) {
-    const rect = dialog.getBoundingClientRect();
-
-    const clickedInside =
-      event.clientX >= rect.left &&
-      event.clientX <= rect.right &&
-      event.clientY >= rect.top &&
-      event.clientY <= rect.bottom;
-
-    if (!clickedInside) {
-      dialog.close();
-    }
-  }
+if (!action) {
+return;
 }
 
-/* ---------------------------------------------------------
-   初期画面
-   --------------------------------------------------------- */
+switch (action) {
+case “navigate”: {
+const viewName =
+element.dataset.view ||
+element.dataset.target;
+
+  if (viewName) {
+    event.preventDefault();
+    navigateTo(viewName);
+  }
+  break;
+}
+case "close-message": {
+  event.preventDefault();
+  const message =
+    $("#cosmos-message") ||
+    $("#toast-message") ||
+    $("#app-message");
+  if (message) {
+    message.classList.remove("is-visible", "show");
+  }
+  break;
+}
+case "close-dialog": {
+  event.preventDefault();
+  closeDialog(
+    element.dataset.dialog || "cosmos-dialog"
+  );
+  break;
+}
+case "open-dialog": {
+  event.preventDefault();
+  openDialog(
+    element.dataset.dialog || "cosmos-dialog"
+  );
+  break;
+}
+case "show-message": {
+  event.preventDefault();
+  showMessage(
+    element.dataset.message || "完了しました。",
+    element.dataset.type || "info"
+  );
+  break;
+}
+case "scroll-top": {
+  event.preventDefault();
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth"
+  });
+  break;
+}
+case "back": {
+  event.preventDefault();
+  const destination = element.dataset.back || "home";
+  if (COSMOS_VIEWS.includes(destination)) {
+    navigateTo(destination);
+  }
+  break;
+}
+/*
+ * タイマー、カレンダー、経済などの機能専用操作は
+ * ここで処理を横取りしない。
+ * 既存の各機能モジュールに任せる。
+ */
+default:
+  break;
+
+}
+}
+
+/* =========================================================
+メニュー操作
+========================================================= */
+
+function handleMenuClick(event) {
+const target = event.target;
+
+if (!(target instanceof Element)) {
+return;
+}
+
+const toggle = target.closest(”[data-menu-toggle]”);
+
+if (toggle) {
+event.preventDefault();
+toggleMenu();
+return;
+}
+
+const closeButton = target.closest(”[data-menu-close]”);
+
+if (closeButton) {
+event.preventDefault();
+closeMenu();
+return;
+}
+
+const backdrop = getMenuBackdrop();
+
+if (
+backdrop &&
+(target === backdrop ||
+target.closest(”.menu-backdrop”) === backdrop)
+) {
+closeMenu();
+return;
+}
+
+const drawer = getMenuDrawer();
+
+if (!drawer || !drawer.contains(target)) {
+return;
+}
+
+const viewButton = target.closest(”[data-view]”);
+
+if (viewButton) {
+const viewName = viewButton.dataset.view;
+
+if (COSMOS_VIEWS.includes(viewName)) {
+  event.preventDefault();
+  navigateTo(viewName);
+}
+
+}
+}
+
+/* =========================================================
+キーボード操作
+========================================================= */
+
+function handleGlobalKeydown(event) {
+if (event.key === “Escape” && isMenuOpen()) {
+closeMenu();
+
+const toggle = $("[data-menu-toggle]");
+if (toggle) {
+  toggle.focus({
+    preventScroll: true
+  });
+}
+
+}
+}
+
+/* =========================================================
+ダイアログの背景クリック
+========================================================= */
+
+function handleDialogClick(event) {
+const dialog = event.target;
+
+if (!(dialog instanceof HTMLDialogElement)) {
+return;
+}
+
+if (dialog.id !== “cosmos-dialog”) {
+return;
+}
+
+if (dialog.dataset.closeOnBackdrop !== “true”) {
+return;
+}
+
+if (event.target === dialog) {
+closeDialog(dialog.id);
+}
+}
+
+/* =========================================================
+メニュー初期状態
+========================================================= */
+
+function initializeMenu() {
+const drawer = getMenuDrawer();
+const backdrop = getMenuBackdrop();
+const toggle = $(”[data-menu-toggle]”);
+
+if (drawer) {
+drawer.classList.remove(“is-open”);
+drawer.setAttribute(“aria-hidden”, “true”);
+
+if ("inert" in drawer) {
+  drawer.inert = true;
+}
+
+}
+
+if (backdrop) {
+backdrop.classList.remove(“is-open”);
+backdrop.setAttribute(“aria-hidden”, “true”);
+}
+
+document.body.classList.remove(“menu-open”);
+
+if (toggle) {
+toggle.setAttribute(“aria-expanded”, “false”);
+toggle.setAttribute(“aria-controls”, drawer?.id || “menu-drawer”);
+}
+}
+
+/* =========================================================
+初期画面
+========================================================= */
 
 function initializeInitialView() {
-  const current = document.body.dataset.currentView;
+const activeSection = $(
+“main > section.active[id^=‘view-’]”
+);
 
-  if (
-    current &&
-    COSMOS_VIEWS.includes(current) &&
-    document.getElementById(`view-${current}`)
-  ) {
-    navigateTo(current);
-    return;
-  }
+if (activeSection) {
+const viewName = activeSection.id.replace(“view-”, “”);
 
-  const active = $("main > section.active[id^='view-']");
-
-  if (active) {
-    const name = active.id.replace("view-", "");
-
-    if (
-      COSMOS_VIEWS.includes(name) &&
-      document.getElementById(`view-${name}`)
-    ) {
-      navigateTo(name);
-      return;
-    }
-  }
-
-  navigateTo("home");
+if (
+  COSMOS_VIEWS.includes(viewName) &&
+  document.getElementById(`view-${viewName}`)
+) {
+  showView(viewName);
+  return;
 }
 
-/* ---------------------------------------------------------
-   初期化
-   --------------------------------------------------------- */
+}
+
+showView(“home”);
+}
+
+/* =========================================================
+初期化
+========================================================= */
 
 export function initUI() {
-  if (initialized) {
-    return;
-  }
-
-  initialized = true;
-
-  // data-view による画面切り替えは navigation.js のみで処理
-  initNavigation();
-
-  // data-action はこのファイルで共通処理する
-  document.addEventListener("click", handleActionClick);
-
-  document.addEventListener(
-    "click",
-    handleDialogBackdropClick
-  );
-
-  initializeInitialView();
-
-  document.dispatchEvent(
-    new CustomEvent("cosmos:ui-ready")
-  );
+if (initialized) {
+return;
 }
 
-/* ---------------------------------------------------------
-   終了処理
-   --------------------------------------------------------- */
+initialized = true;
+
+initializeMenu();
+
+/*
+
+* 画面遷移の初期化
+    */
+    initNavigation();
+
+/*
+
+* 共通操作
+    */
+    document.addEventListener(“click”, handleMenuClick);
+    document.addEventListener(“click”, handleActionClick);
+    document.addEventListener(“click”, handleDialogClick);
+    document.addEventListener(“keydown”, handleGlobalKeydown);
+
+/*
+
+* 初期画面をホームに設定
+    */
+    initializeInitialView();
+
+/*
+
+* 他の機能モジュールが初期化を検知できるようにする
+    */
+    document.dispatchEvent(
+    new CustomEvent(“cosmos:ui-ready”)
+    );
+    }
+
+/* =========================================================
+終了処理
+========================================================= */
 
 export function destroyUI() {
-  if (!initialized) {
-    return;
-  }
-
-  document.removeEventListener("click", handleActionClick);
-
-  document.removeEventListener(
-    "click",
-    handleDialogBackdropClick
-  );
-
-  if (messageTimer !== null) {
-    clearTimeout(messageTimer);
-    messageTimer = null;
-  }
-
-  initialized = false;
+if (!initialized) {
+return;
 }
 
-/* ---------------------------------------------------------
-   自動起動
-   --------------------------------------------------------- */
+document.removeEventListener(“click”, handleMenuClick);
+document.removeEventListener(“click”, handleActionClick);
+document.removeEventListener(“click”, handleDialogClick);
+document.removeEventListener(“keydown”, handleGlobalKeydown);
 
-if (document.readyState === "loading") {
-  document.addEventListener(
-    "DOMContentLoaded",
-    initUI,
-    { once: true }
-  );
+if (messageTimer !== null) {
+clearTimeout(messageTimer);
+messageTimer = null;
+}
+
+closeMenu();
+
+initialized = false;
+}
+
+/* =========================================================
+DOM読み込み後に自動初期化
+========================================================= */
+
+if (document.readyState === “loading”) {
+document.addEventListener(
+“DOMContentLoaded”,
+initUI,
+{ once: true }
+);
 } else {
-  initUI();
+initUI();
 }
