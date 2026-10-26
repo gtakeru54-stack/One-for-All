@@ -1,23 +1,32 @@
+
 /* =========================================================
    ONE FOR ALL — COSMOS
    js/schedule.js
    週間時間割・予定・学習計画・実績比較
    表示時間：06:00〜翌日02:00
+
+   修正内容：
+   ・app.js と共通の保存先から予定・タスクを読み込む
+   ・calendarEvents / calendarTasks の未定義を解消
+   ・週間予定表は曜日が横、時間が縦の表形式を維持
+   ・予定の追加・編集後に週間予定表を更新
    ========================================================= */
 
 "use strict";
 
 (() => {
-  const $ = (s, root = document) => root.querySelector(s);
+  const $ = (selector, root = document) =>
+    root.querySelector(selector);
 
   const STORAGE = {
-  events: "oneforall-events-v1",
-  tasks: "oneforall-tasks-v1",
-  study: "oneforall-study-v1",
-  weekly: "oneforall-weekly-plan-v1"
-};
+    events: "oneforall-events-v1",
+    tasks: "oneforall-tasks-v1",
+    study: "oneforall-study-v1",
+    weekly: "oneforall-weekly-plan-v1"
+  };
 
   const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"];
+
   const START_MINUTE = 6 * 60;
   const END_MINUTE = 26 * 60;
   const HOUR_HEIGHT = 54;
@@ -42,14 +51,14 @@
     }
   };
 
-  const pad = n => String(n).padStart(2, "0");
+  const pad = value => String(value).padStart(2, "0");
 
   const dateKey = date =>
     `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 
   const parseDate = key => {
-    const [y, m, d] = String(key).split("-").map(Number);
-    return new Date(y, m - 1, d);
+    const [year, month, day] = String(key).split("-").map(Number);
+    return new Date(year, month - 1, day);
   };
 
   const uid = () =>
@@ -57,91 +66,163 @@
     `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
   const escapeHTML = value =>
-    String(value ?? "").replace(/[&<>"']/g, c => ({
+    String(value ?? "").replace(/[&<>"']/g, character => ({
       "&": "&amp;",
       "<": "&lt;",
       ">": "&gt;",
       '"': "&quot;",
       "'": "&#39;"
-    })[c]);
+    })[character]);
 
   const toMinutes = value => {
-    if (!value || !/^\d{1,2}:\d{2}$/.test(value)) return null;
-    const [h, m] = value.split(":").map(Number);
-    if (h > 47 || m > 59) return null;
-    return h * 60 + m;
+    if (!value || !/^\d{1,2}:\d{2}$/.test(value)) {
+      return null;
+    }
+
+    const [hour, minute] = value.split(":").map(Number);
+
+    if (hour > 47 || minute > 59) {
+      return null;
+    }
+
+    return hour * 60 + minute;
   };
 
   const duration = (start, end) => {
-    const s = toMinutes(start);
-    const e = toMinutes(end);
-    if (s === null || e === null) return 0;
-    return Math.max(0, e - s);
+    const startMinutes = toMinutes(start);
+    const endMinutes = toMinutes(end);
+
+    if (startMinutes === null || endMinutes === null) {
+      return 0;
+    }
+
+    return Math.max(0, endMinutes - startMinutes);
   };
 
   const fmtMinutes = value => {
-    const n = Math.max(0, Math.round(Number(value) || 0));
-    const h = Math.floor(n / 60);
-    const m = n % 60;
-    if (h && m) return `${h}時間${m}分`;
-    if (h) return `${h}時間`;
-    return `${m}分`;
+    const minutes = Math.max(0, Math.round(Number(value) || 0));
+    const hours = Math.floor(minutes / 60);
+    const remainder = minutes % 60;
+
+    if (hours && remainder) {
+      return `${hours}時間${remainder}分`;
+    }
+
+    if (hours) {
+      return `${hours}時間`;
+    }
+
+    return `${remainder}分`;
   };
 
   const timeText = minutes => {
     const dayOffset = Math.floor(minutes / 1440);
     const withinDay = ((minutes % 1440) + 1440) % 1440;
-    const h = Math.floor(withinDay / 60);
-    const m = withinDay % 60;
+    const hour = Math.floor(withinDay / 60);
+    const minute = withinDay % 60;
     const suffix = dayOffset > 0 ? "翌" : "";
-    return `${suffix}${pad(h)}:${pad(m)}`;
-  };
 
-  const localDate = key => {
-    const d = parseDate(key);
-    d.setHours(0, 0, 0, 0);
-    return d;
+    return `${suffix}${pad(hour)}:${pad(minute)}`;
   };
 
   const startOfWeek = date => {
-    const d = new Date(date);
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() - d.getDay());
-    return d;
+    const result = new Date(date);
+    result.setHours(0, 0, 0, 0);
+    result.setDate(result.getDate() - result.getDay());
+    return result;
   };
 
-  const calendar = read(STORAGE.calendar, {
-    events: [],
-    tasks: []
-  });
+  // =========================================================
+  // 保存データ
+  // =========================================================
 
-  if (!Array.isArray(calendar.events)) calendar.events = [];
-  if (!Array.isArray(calendar.tasks)) calendar.tasks = [];
+  let calendarEvents = read(STORAGE.events, []);
+  if (!Array.isArray(calendarEvents)) {
+    calendarEvents = [];
+  }
 
-  const study = read(STORAGE.study, {
+  let calendarTasks = read(STORAGE.tasks, []);
+  if (!Array.isArray(calendarTasks)) {
+    calendarTasks = [];
+  }
+
+  let study = read(STORAGE.study, {
     subjects: [],
     items: [],
     records: []
   });
 
-  if (!Array.isArray(study.records)) study.records = [];
+  if (!study || typeof study !== "object") {
+    study = {
+      subjects: [],
+      items: [],
+      records: []
+    };
+  }
+
+  if (!Array.isArray(study.records)) {
+    study.records = [];
+  }
 
   let plans = read(STORAGE.weekly, []);
-  if (!Array.isArray(plans)) plans = [];
+  if (!Array.isArray(plans)) {
+    plans = [];
+  }
 
   let weekDate = new Date();
   let selectedDate = dateKey(new Date());
   let activeTab = "weekly";
 
-  const persistCalendar = () => {
-  const eventsSaved = save(STORAGE.events, calendarEvents);
-  const tasksSaved = save(STORAGE.tasks, calendarTasks);
-  return eventsSaved && tasksSaved;
-};
+  function syncStoredData() {
+    const updatedEvents = read(STORAGE.events, []);
+    const updatedTasks = read(STORAGE.tasks, []);
+    const updatedStudy = read(STORAGE.study, {
+      subjects: [],
+      items: [],
+      records: []
+    });
+    const updatedPlans = read(STORAGE.weekly, []);
 
-const persistPlans = () => save(STORAGE.weekly, plans);
+    calendarEvents = Array.isArray(updatedEvents)
+      ? updatedEvents
+      : [];
+
+    calendarTasks = Array.isArray(updatedTasks)
+      ? updatedTasks
+      : [];
+
+    if (
+      updatedStudy &&
+      typeof updatedStudy === "object" &&
+      Array.isArray(updatedStudy.records)
+    ) {
+      study = updatedStudy;
+    }
+
+    if (Array.isArray(updatedPlans)) {
+      plans = updatedPlans;
+    }
+  }
+
+  function persistCalendar() {
+    const eventsSaved = save(STORAGE.events, calendarEvents);
+    const tasksSaved = save(STORAGE.tasks, calendarTasks);
+
+    return eventsSaved && tasksSaved;
+  }
+
+  function persistPlans() {
+    return save(STORAGE.weekly, plans);
+  }
+
+  // =========================================================
+  // スタイル
+  // =========================================================
+
   function injectStyles() {
-    if ($("#weekly-timetable-style")) return;
+    if ($("#weekly-timetable-style")) {
+      return;
+    }
 
     const style = document.createElement("style");
     style.id = "weekly-timetable-style";
@@ -375,16 +456,6 @@ const persistPlans = () => save(STORAGE.weekly, plans);
         border-color: #69dfc4;
       }
 
-      .weekly-block.actual-only {
-        background: repeating-linear-gradient(
-          135deg,
-          rgba(38,145,119,.85),
-          rgba(38,145,119,.85) 5px,
-          rgba(38,145,119,.55) 5px,
-          rgba(38,145,119,.55) 10px
-        );
-      }
-
       .weekly-block.completed {
         opacity: .72;
       }
@@ -513,6 +584,10 @@ const persistPlans = () => save(STORAGE.weekly, plans);
     document.head.append(style);
   }
 
+  // =========================================================
+  // 学習記録
+  // =========================================================
+
   function getActualRecords(date) {
     return study.records.filter(record => record.date === date);
   }
@@ -525,13 +600,19 @@ const persistPlans = () => save(STORAGE.weekly, plans);
       0
     );
 
-    if (seconds > 0) return seconds / 60;
+    if (seconds > 0) {
+      return seconds / 60;
+    }
 
     const minutes = Number(record.minutes);
-    if (minutes > 0) return minutes;
+    if (minutes > 0) {
+      return minutes;
+    }
 
     const hours = Number(record.hours);
-    if (hours > 0) return hours * 60;
+    if (hours > 0) {
+      return hours * 60;
+    }
 
     return 0;
   }
@@ -550,14 +631,22 @@ const persistPlans = () => save(STORAGE.weekly, plans);
 
   function actualMinutesForPlan(plan) {
     const relevant = getActualRecords(plan.date).filter(record => {
-      const subject = String(record.subject || record.category || "");
-      const item = String(record.item || record.title || "");
+      const subject = String(
+        record.subject || record.category || record.subjectId || ""
+      );
+
+      const item = String(
+        record.item || record.title || record.itemId || ""
+      );
 
       return (!plan.subject || subject === plan.subject) &&
         (!plan.item || item === plan.item);
     });
 
-    return relevant.reduce((sum, record) => sum + recordMinutes(record), 0);
+    return relevant.reduce(
+      (sum, record) => sum + recordMinutes(record),
+      0
+    );
   }
 
   function planDay(date) {
@@ -565,32 +654,49 @@ const persistPlans = () => save(STORAGE.weekly, plans);
   }
 
   function eventsDay(date) {
-  return calendarEvents.filter(event => event.date === date);
-}
+    return calendarEvents.filter(event => event.date === date);
+  }
+
+  // =========================================================
+  // 週間予定表：曜日が横、時間が縦の表形式
+  // =========================================================
 
   function makeTimeline() {
     const wrapper = $("#weekly-timetable");
     if (!wrapper) return;
 
     const firstDay = startOfWeek(weekDate);
-    const days = Array.from({ length: 7 }, (_, i) => {
+
+    const days = Array.from({ length: 7 }, (_, index) => {
       const date = new Date(firstDay);
-      date.setDate(date.getDate() + i);
-      return { date, key: dateKey(date) };
+      date.setDate(date.getDate() + index);
+
+      return {
+        date,
+        key: dateKey(date)
+      };
     });
 
     const hourLabels = [];
-    for (let minute = START_MINUTE; minute <= END_MINUTE; minute += 60) {
-      const top = ((minute - START_MINUTE) / 60) * HOUR_HEIGHT;
+
+    for (
+      let minute = START_MINUTE;
+      minute <= END_MINUTE;
+      minute += 60
+    ) {
+      const top =
+        ((minute - START_MINUTE) / 60) * HOUR_HEIGHT;
+
       hourLabels.push(
         `<span class="weekly-time-label" style="top:${top}px">${timeText(minute)}</span>`
       );
     }
 
-    let header = `
+    const header = `
       <div class="weekly-corner"></div>
       ${days.map(day => {
         const isToday = day.key === dateKey(new Date());
+
         return `
           <button type="button"
             class="weekly-day-heading ${isToday ? "today" : ""}"
@@ -610,21 +716,32 @@ const persistPlans = () => save(STORAGE.weekly, plans);
 
     for (const day of days) {
       const selected = day.key === selectedDate;
-
       const blocks = [];
 
+      // 学習計画（青）
       for (const plan of planDay(day.key)) {
         const start = toMinutes(plan.start);
         const end = toMinutes(plan.end);
-        if (start === null || end === null) continue;
 
-        const normalizedStart = start < START_MINUTE ? start + 1440 : start;
-        const normalizedEnd = end <= start ? end + 1440 : end;
+        if (start === null || end === null) {
+          continue;
+        }
+
+        const normalizedStart =
+          start < START_MINUTE ? start + 1440 : start;
+
+        const normalizedEnd =
+          end <= start ? end + 1440 : end;
 
         const top = normalizedStart - START_MINUTE;
         const bottom = normalizedEnd - START_MINUTE;
 
-        if (bottom <= 0 || top >= END_MINUTE - START_MINUTE) continue;
+        if (
+          bottom <= 0 ||
+          top >= END_MINUTE - START_MINUTE
+        ) {
+          continue;
+        }
 
         const visibleTop = Math.max(0, top);
         const visibleBottom = Math.min(
@@ -637,11 +754,10 @@ const persistPlans = () => save(STORAGE.weekly, plans);
 
         blocks.push({
           top: visibleTop,
-          height: Math.max(8, visibleBottom - visibleTop),
           html: `
             <button type="button"
               class="weekly-block plan"
-              style="top:${visibleTop / 60 * HOUR_HEIGHT}px;height:${Math.max(8, (visibleBottom-visibleTop) / 60 * HOUR_HEIGHT)}px"
+              style="top:${visibleTop / 60 * HOUR_HEIGHT}px;height:${Math.max(8, (visibleBottom - visibleTop) / 60 * HOUR_HEIGHT)}px"
               data-edit-week-plan="${escapeHTML(plan.id)}"
               title="${escapeHTML(plan.title)}">
               <strong>${escapeHTML(plan.title)}</strong>
@@ -653,19 +769,36 @@ const persistPlans = () => save(STORAGE.weekly, plans);
         });
       }
 
+      // 既存のカレンダー予定（紫）
       for (const event of eventsDay(day.key)) {
-        if (!event.start) continue;
+        if (!event.start) {
+          continue;
+        }
 
         const start = toMinutes(event.start);
-        const end = toMinutes(event.end) ?? (start + 30);
-        if (start === null) continue;
+        const end = toMinutes(event.end) ?? (
+          start === null ? null : start + 30
+        );
 
-        const normalizedStart = start < START_MINUTE ? start + 1440 : start;
-        const normalizedEnd = end <= start ? end + 1440 : end;
+        if (start === null || end === null) {
+          continue;
+        }
+
+        const normalizedStart =
+          start < START_MINUTE ? start + 1440 : start;
+
+        const normalizedEnd =
+          end <= start ? end + 1440 : end;
+
         const top = normalizedStart - START_MINUTE;
         const bottom = normalizedEnd - START_MINUTE;
 
-        if (bottom <= 0 || top >= END_MINUTE - START_MINUTE) continue;
+        if (
+          bottom <= 0 ||
+          top >= END_MINUTE - START_MINUTE
+        ) {
+          continue;
+        }
 
         const visibleTop = Math.max(0, top);
         const visibleBottom = Math.min(
@@ -675,11 +808,10 @@ const persistPlans = () => save(STORAGE.weekly, plans);
 
         blocks.push({
           top: visibleTop,
-          height: Math.max(8, visibleBottom - visibleTop),
           html: `
             <button type="button"
               class="weekly-block event"
-              style="top:${visibleTop / 60 * HOUR_HEIGHT}px;height:${Math.max(8, (visibleBottom-visibleTop) / 60 * HOUR_HEIGHT)}px"
+              style="top:${visibleTop / 60 * HOUR_HEIGHT}px;height:${Math.max(8, (visibleBottom - visibleTop) / 60 * HOUR_HEIGHT)}px"
               data-open-calendar-event="${escapeHTML(event.id || "")}"
               title="${escapeHTML(event.title)}">
               <strong>${escapeHTML(event.title)}</strong>
@@ -689,19 +821,31 @@ const persistPlans = () => save(STORAGE.weekly, plans);
         });
       }
 
-      // 実際の学習時間に開始・終了時刻が記録されていれば緑色のブロックで表示。
+      // 開始・終了時刻が記録されている学習実績（緑）
       for (const record of getActualRecords(day.key)) {
         const startText = recordStart(record);
         const endText = recordEnd(record);
+
         const start = toMinutes(startText);
         const end = toMinutes(endText);
 
-        if (start === null || end === null || end <= start) continue;
+        if (
+          start === null ||
+          end === null ||
+          end <= start
+        ) {
+          continue;
+        }
 
         const top = start - START_MINUTE;
         const bottom = end - START_MINUTE;
 
-        if (bottom <= 0 || top >= END_MINUTE - START_MINUTE) continue;
+        if (
+          bottom <= 0 ||
+          top >= END_MINUTE - START_MINUTE
+        ) {
+          continue;
+        }
 
         const visibleTop = Math.max(0, top);
         const visibleBottom = Math.min(
@@ -709,15 +853,16 @@ const persistPlans = () => save(STORAGE.weekly, plans);
           bottom
         );
 
-        const subject = record.subject || record.category || "学習実績";
+        const subject =
+          record.subject || record.category || "学習実績";
+
         const item = record.item || record.title || "";
 
         blocks.push({
           top: visibleTop,
-          height: Math.max(8, visibleBottom - visibleTop),
           html: `
             <div class="weekly-block actual"
-              style="top:${visibleTop / 60 * HOUR_HEIGHT}px;height:${Math.max(8, (visibleBottom-visibleTop) / 60 * HOUR_HEIGHT)}px"
+              style="top:${visibleTop / 60 * HOUR_HEIGHT}px;height:${Math.max(8, (visibleBottom - visibleTop) / 60 * HOUR_HEIGHT)}px"
               title="実績：${escapeHTML(subject)}">
               <strong>✓ ${escapeHTML(subject)}</strong>
               <small>${escapeHTML(startText)}–${escapeHTML(endText)}</small>
@@ -727,21 +872,35 @@ const persistPlans = () => save(STORAGE.weekly, plans);
         });
       }
 
+      // 現在時刻を示す線
       const now = new Date();
       let nowLine = "";
 
       if (day.key === dateKey(now)) {
-        const currentMinutes = now.getHours() * 60 + now.getMinutes();
-        if (currentMinutes >= START_MINUTE && currentMinutes <= END_MINUTE) {
-          const top = (currentMinutes - START_MINUTE) / 60 * HOUR_HEIGHT;
-          nowLine = `<div class="weekly-today-line" style="top:${top}px"></div>`;
+        const currentMinutes =
+          now.getHours() * 60 + now.getMinutes();
+
+        if (
+          currentMinutes >= START_MINUTE &&
+          currentMinutes <= END_MINUTE
+        ) {
+          const top =
+            ((currentMinutes - START_MINUTE) / 60) * HOUR_HEIGHT;
+
+          nowLine = `
+            <div class="weekly-today-line"
+              style="top:${top}px"></div>
+          `;
         }
       }
 
       columns += `
         <div class="weekly-day-column ${selected ? "selected" : ""}"
           data-column-date="${day.key}">
-          ${blocks.sort((a, b) => a.top - b.top).map(block => block.html).join("")}
+          ${blocks
+            .sort((a, b) => a.top - b.top)
+            .map(block => block.html)
+            .join("")}
           ${nowLine}
         </div>
       `;
@@ -763,73 +922,123 @@ const persistPlans = () => save(STORAGE.weekly, plans);
 
     wrapper.querySelectorAll("[data-edit-week-plan]").forEach(button => {
       button.addEventListener("click", () => {
-        const plan = plans.find(item => item.id === button.dataset.editWeekPlan);
-        if (plan) openPlanDialog(plan);
+        const plan = plans.find(
+          item => item.id === button.dataset.editWeekPlan
+        );
+
+        if (plan) {
+          openPlanDialog(plan);
+        }
       });
     });
 
     wrapper.querySelectorAll("[data-open-calendar-event]").forEach(button => {
       button.addEventListener("click", () => {
         const event = calendarEvents.find(item =>
-  String(item.id || "") === button.dataset.openCalendarEvent
-);
+          String(item.id || "") === button.dataset.openCalendarEvent
+        );
 
-        if (event) {
-          const dialog = $("#event-dialog");
-          if (dialog) {
-            $("#event-id").value = event.id || "";
-            $("#event-title").value = event.title || "";
-            $("#event-date").value = event.date || selectedDate;
-            $("#event-start").value = event.start || "";
-            $("#event-end").value = event.end || "";
-            $("#event-notes").value = event.notes || "";
-            if (!dialog.open) dialog.showModal();
+        if (!event) {
+          return;
+        }
+
+        const dialog = $("#event-dialog");
+        if (!dialog) {
+          return;
+        }
+
+        const setValue = (selector, value) => {
+          const element = $(selector);
+
+          if (element) {
+            element.value = value || "";
           }
+        };
+
+        setValue("#event-id", event.id);
+        setValue("#event-title", event.title);
+        setValue("#event-date", event.date || selectedDate);
+        setValue("#event-start", event.start);
+        setValue("#event-end", event.end);
+        setValue("#event-notes", event.notes);
+
+        if (!dialog.open) {
+          dialog.showModal();
         }
       });
     });
   }
 
+  // =========================================================
+  // 週間の計画・実績比較
+  // =========================================================
+
   function renderComparison() {
-    const days = Array.from({ length: 7 }, (_, i) => {
+    const days = Array.from({ length: 7 }, (_, index) => {
       const date = startOfWeek(weekDate);
-      date.setDate(date.getDate() + i);
+      date.setDate(date.getDate() + index);
       return dateKey(date);
     });
 
-    const weeklyPlans = plans.filter(plan => days.includes(plan.date));
+    const weeklyPlans = plans.filter(plan =>
+      days.includes(plan.date)
+    );
 
-    const planned = weeklyPlans.reduce((sum, plan) =>
-      sum + planMinutes(plan), 0
+    const planned = weeklyPlans.reduce(
+      (sum, plan) => sum + planMinutes(plan),
+      0
     );
 
     const actual = days.reduce((sum, day) =>
       sum + getActualRecords(day).reduce(
-        (subtotal, record) => subtotal + recordMinutes(record), 0
-      ), 0
+        (subtotal, record) => subtotal + recordMinutes(record),
+        0
+      ),
+      0
     );
 
-    const rate = planned > 0 ? Math.round(actual / planned * 100) : 0;
+    const rate = planned > 0
+      ? Math.round(actual / planned * 100)
+      : 0;
 
-    $("#weekly-planned-total").textContent = fmtMinutes(planned);
-    $("#weekly-actual-total").textContent = fmtMinutes(actual);
-    $("#weekly-achievement").textContent = `${rate}%`;
+    const plannedTotal = $("#weekly-planned-total");
+    const actualTotal = $("#weekly-actual-total");
+    const achievement = $("#weekly-achievement");
+    const comparison = $("#weekly-comparison");
+
+    if (plannedTotal) {
+      plannedTotal.textContent = fmtMinutes(planned);
+    }
+
+    if (actualTotal) {
+      actualTotal.textContent = fmtMinutes(actual);
+    }
+
+    if (achievement) {
+      achievement.textContent = `${rate}%`;
+    }
+
+    if (!comparison) {
+      return;
+    }
 
     const max = Math.max(planned, actual, 1);
 
-    $("#weekly-comparison").innerHTML = `
+    comparison.innerHTML = `
       <div class="weekly-compare-bars">
         <div class="weekly-compare-row">
           <span>計画時間</span>
           <div class="weekly-compare-track">
-            <span class="planned-bar" style="width:${planned / max * 100}%"></span>
+            <span class="planned-bar"
+              style="width:${planned / max * 100}%"></span>
           </div>
           <strong>${fmtMinutes(planned)}</strong>
         </div>
         <div class="weekly-compare-row">
           <span>実績時間</span>
           <div class="weekly-compare-track">
-            <span class="actual-bar" style="width:${actual / max * 100}%"></span>
+            <span class="actual-bar"
+              style="width:${actual / max * 100}%"></span>
           </div>
           <strong>${fmtMinutes(actual)}</strong>
         </div>
@@ -837,19 +1046,29 @@ const persistPlans = () => save(STORAGE.weekly, plans);
     `;
   }
 
+  // =========================================================
+  // 選択日の学習計画一覧
+  // =========================================================
+
   function renderDayCards() {
     const date = parseDate(selectedDate);
     const title = $("#weekly-selected-title");
+
     if (title) {
       title.textContent =
         `${date.getMonth() + 1}月${date.getDate()}日（${DAY_NAMES[date.getDay()]}）`;
     }
 
     const container = $("#weekly-plan-list");
-    if (!container) return;
+    if (!container) {
+      return;
+    }
 
-    const dayPlans = plans.filter(plan => plan.date === selectedDate)
-      .sort((a, b) => String(a.start).localeCompare(String(b.start)));
+    const dayPlans = plans
+      .filter(plan => plan.date === selectedDate)
+      .sort((a, b) =>
+        String(a.start).localeCompare(String(b.start))
+      );
 
     if (!dayPlans.length) {
       container.innerHTML =
@@ -866,28 +1085,38 @@ const persistPlans = () => save(STORAGE.weekly, plans);
         <article class="weekly-plan-card">
           <h3>${escapeHTML(plan.title)}</h3>
           <p>${escapeHTML(plan.start)}〜${escapeHTML(plan.end)}</p>
-          ${plan.subject ? `<p>科目：${escapeHTML(plan.subject)}</p>` : ""}
-          ${plan.item ? `<p>項目：${escapeHTML(plan.item)}</p>` : ""}
-          ${plan.notes ? `<p>${escapeHTML(plan.notes)}</p>` : ""}
+          ${plan.subject
+            ? `<p>科目：${escapeHTML(plan.subject)}</p>`
+            : ""}
+          ${plan.item
+            ? `<p>項目：${escapeHTML(plan.item)}</p>`
+            : ""}
+          ${plan.notes
+            ? `<p>${escapeHTML(plan.notes)}</p>`
+            : ""}
 
           <div class="weekly-compare-bars">
             <div class="weekly-compare-row">
               <span>計画</span>
               <div class="weekly-compare-track">
-                <span class="planned-bar" style="width:${expected / max * 100}%"></span>
+                <span class="planned-bar"
+                  style="width:${expected / max * 100}%"></span>
               </div>
               <strong>${fmtMinutes(expected)}</strong>
             </div>
             <div class="weekly-compare-row">
               <span>実績</span>
               <div class="weekly-compare-track">
-                <span class="actual-bar" style="width:${actual / max * 100}%"></span>
+                <span class="actual-bar"
+                  style="width:${actual / max * 100}%"></span>
               </div>
               <strong>${fmtMinutes(actual)}</strong>
             </div>
           </div>
 
-          <p>達成率：${expected ? Math.round(actual / expected * 100) : 0}%</p>
+          <p>達成率：${expected
+            ? Math.round(actual / expected * 100)
+            : 0}%</p>
 
           <div class="weekly-card-actions">
             <button class="secondary-button" type="button"
@@ -901,44 +1130,72 @@ const persistPlans = () => save(STORAGE.weekly, plans);
 
     container.querySelectorAll("[data-edit-plan]").forEach(button => {
       button.addEventListener("click", () => {
-        const plan = plans.find(item => item.id === button.dataset.editPlan);
-        if (plan) openPlanDialog(plan);
+        const plan = plans.find(
+          item => item.id === button.dataset.editPlan
+        );
+
+        if (plan) {
+          openPlanDialog(plan);
+        }
       });
     });
 
     container.querySelectorAll("[data-delete-plan]").forEach(button => {
       button.addEventListener("click", () => {
-        const plan = plans.find(item => item.id === button.dataset.deletePlan);
-        if (plan) deletePlan(plan);
+        const plan = plans.find(
+          item => item.id === button.dataset.deletePlan
+        );
+
+        if (plan) {
+          deletePlan(plan);
+        }
       });
     });
   }
 
-  function renderWeekly() {
-    if (!$("#weekly-planner")) return;
+  // =========================================================
+  // 週間予定表の描画
+  // =========================================================
 
-    const days = Array.from({ length: 7 }, (_, i) => {
+  function renderWeekly() {
+    if (!$("#weekly-planner")) {
+      return;
+    }
+
+    syncStoredData();
+
+    const days = Array.from({ length: 7 }, (_, index) => {
       const date = startOfWeek(weekDate);
-      date.setDate(date.getDate() + i);
+      date.setDate(date.getDate() + index);
       return date;
     });
 
     const first = days[0];
     const last = days[6];
+    const title = $("#weekly-title");
 
-    $("#weekly-title").textContent =
-      `${first.getFullYear()}年${first.getMonth() + 1}月${first.getDate()}日〜` +
-      `${last.getMonth() + 1}月${last.getDate()}日`;
+    if (title) {
+      title.textContent =
+        `${first.getFullYear()}年${first.getMonth() + 1}月${first.getDate()}日〜` +
+        `${last.getMonth() + 1}月${last.getDate()}日`;
+    }
 
     makeTimeline();
     renderComparison();
     renderDayCards();
   }
 
+  // =========================================================
+  // 学習計画ダイアログ
+  // =========================================================
+
   function openPlanDialog(plan = null) {
     const dialog = $("#weekly-plan-dialog");
     const form = $("#weekly-plan-form");
-    if (!dialog || !form) return;
+
+    if (!dialog || !form) {
+      return;
+    }
 
     form.reset();
 
@@ -951,12 +1208,17 @@ const persistPlans = () => save(STORAGE.weekly, plans);
     $("#weekly-plan-end").value = plan?.end || "17:00";
     $("#weekly-plan-notes").value = plan?.notes || "";
 
-    if (!dialog.open) dialog.showModal();
+    if (!dialog.open) {
+      dialog.showModal();
+    }
   }
 
   function closePlanDialog() {
     const dialog = $("#weekly-plan-dialog");
-    if (dialog?.open) dialog.close();
+
+    if (dialog?.open) {
+      dialog.close();
+    }
   }
 
   function savePlanFromForm() {
@@ -979,6 +1241,8 @@ const persistPlans = () => save(STORAGE.weekly, plans);
       return;
     }
 
+    syncStoredData();
+
     const old = plans.find(plan => plan.id === id);
 
     const plan = {
@@ -995,36 +1259,43 @@ const persistPlans = () => save(STORAGE.weekly, plans);
     };
 
     if (old) {
-      plans = plans.map(planItem => planItem.id === old.id ? plan : planItem);
+      plans = plans.map(planItem =>
+        planItem.id === old.id ? plan : planItem
+      );
     } else {
       plan.createdAt = Date.now();
       plans.push(plan);
     }
 
-    // 学習計画をタスクにも反映。計画IDで重複を防ぐ。
+    // 学習計画をタスクにも反映する。
+    // 計画IDを利用して同じタスクが重複するのを防ぐ。
     const taskId = `weekly-${plan.id}`;
-    const task = calendarTasks.find(t =>
-  t.weeklyPlanId === plan.id || t.id === taskId
-);
+
+    const task = calendarTasks.find(existingTask =>
+      existingTask.weeklyPlanId === plan.id ||
+      existingTask.id === taskId
+    );
 
     const taskData = {
       id: task?.id || taskId,
       weeklyPlanId: plan.id,
       title: `学習：${plan.title}`,
       date: plan.date,
-      notes: `${plan.start}〜${plan.end}${plan.notes ? " / " + plan.notes : ""}`,
+      notes:
+        `${plan.start}〜${plan.end}` +
+        `${plan.notes ? " / " + plan.notes : ""}`,
       done: Boolean(task?.done),
-createdAt: task?.createdAt || Date.now()
-};
+      createdAt: task?.createdAt || Date.now()
+    };
 
-if (task) {
-  Object.assign(task, taskData);
-} else {
-  calendarTasks.push(taskData);
-}
+    if (task) {
+      Object.assign(task, taskData);
+    } else {
+      calendarTasks.push(taskData);
+    }
 
-    persistPlans();
-    persistCalendar();
+    const plansSaved = persistPlans();
+    const calendarSaved = persistCalendar();
 
     selectedDate = date;
     weekDate = parseDate(date);
@@ -1033,40 +1304,66 @@ if (task) {
     renderWeekly();
 
     const toast = $("#toast");
+
     if (toast) {
-      toast.textContent = "学習計画を保存し、タスクにも追加しました。";
+      toast.textContent =
+        plansSaved && calendarSaved
+          ? "学習計画を保存し、タスクにも追加しました。"
+          : "保存に失敗したデータがある可能性があります。";
+
       toast.classList.add("show");
-      setTimeout(() => toast.classList.remove("show"), 2200);
+
+      setTimeout(() => {
+        toast.classList.remove("show");
+      }, 2200);
     }
   }
 
   function deletePlan(plan) {
-    if (!confirm(`「${plan.title}」の学習計画を削除しますか？`)) return;
+    if (!confirm(`「${plan.title}」の学習計画を削除しますか？`)) {
+      return;
+    }
+
+    syncStoredData();
 
     plans = plans.filter(item => item.id !== plan.id);
+
     calendarTasks = calendarTasks.filter(task =>
-  task.weeklyPlanId !== plan.id &&
-  task.id !== `weekly-${plan.id}`
-);
+      task.weeklyPlanId !== plan.id &&
+      task.id !== `weekly-${plan.id}`
+    );
 
     persistPlans();
     persistCalendar();
     renderWeekly();
   }
 
+  // =========================================================
+  // 画面・タブの作成
+  // =========================================================
+
   function setupUI() {
     const view = $("#view-calendar");
-    if (!view || $("#weekly-planner")) return;
+
+    if (!view || $("#weekly-planner")) {
+      return;
+    }
 
     const heading = view.querySelector(".page-heading");
-    if (!heading) return;
+
+    if (!heading) {
+      return;
+    }
 
     const tabs = document.createElement("div");
     tabs.className = "schedule-tabs";
+
     tabs.innerHTML = `
-      <button type="button" class="schedule-tab active"
+      <button type="button"
+        class="schedule-tab active"
         data-schedule-tab="weekly">週間予定表</button>
-      <button type="button" class="schedule-tab"
+      <button type="button"
+        class="schedule-tab"
         data-schedule-tab="calendar">カレンダー・タスク</button>
     `;
 
@@ -1077,16 +1374,25 @@ if (task) {
       <div class="panel">
         <div class="weekly-toolbar">
           <button type="button" class="secondary-button"
-            id="weekly-prev">‹</button>
+            id="weekly-prev" aria-label="前の週">‹</button>
           <h2 id="weekly-title">週間予定表</h2>
           <button type="button" class="secondary-button"
-            id="weekly-next">›</button>
+            id="weekly-next" aria-label="次の週">›</button>
         </div>
 
         <div class="weekly-summary">
-          <div><small>計画時間</small><strong id="weekly-planned-total">0分</strong></div>
-          <div><small>実績時間</small><strong id="weekly-actual-total">0分</strong></div>
-          <div><small>計画比</small><strong id="weekly-achievement">0%</strong></div>
+          <div>
+            <small>計画時間</small>
+            <strong id="weekly-planned-total">0分</strong>
+          </div>
+          <div>
+            <small>実績時間</small>
+            <strong id="weekly-actual-total">0分</strong>
+          </div>
+          <div>
+            <small>計画比</small>
+            <strong id="weekly-achievement">0%</strong>
+          </div>
         </div>
 
         <div class="weekly-legend">
@@ -1098,22 +1404,30 @@ if (task) {
         <div class="weekly-scroll" id="weekly-timetable"></div>
 
         <p class="weekly-note">
-          表示時間は6:00〜翌2:00です。スマホでは左右にスライドして曜日を確認できます。
-          青は計画、紫は予定、緑は開始・終了時刻のある実績です。
+          表示時間は6:00〜翌2:00です。
+          スマホでは表を左右にスライドして曜日を確認できます。
+          青は学習計画、紫は既存の予定、緑は時刻付きの学習実績です。
         </p>
       </div>
 
       <div class="panel">
         <div class="section-head">
-          <div><p class="eyebrow">PLAN VS ACTUAL</p><h2>計画と実績の比較</h2></div>
-          <button type="button" class="primary-button" id="weekly-add-plan">＋ 学習計画</button>
+          <div>
+            <p class="eyebrow">PLAN VS ACTUAL</p>
+            <h2>計画と実績の比較</h2>
+          </div>
+          <button type="button" class="primary-button"
+            id="weekly-add-plan">＋ 学習計画</button>
         </div>
         <div id="weekly-comparison"></div>
       </div>
 
       <div class="panel">
         <div class="section-head">
-          <div><p class="eyebrow">DAILY PLAN</p><h2 id="weekly-selected-title">今日の計画</h2></div>
+          <div>
+            <p class="eyebrow">DAILY PLAN</p>
+            <h2 id="weekly-selected-title">今日の計画</h2>
+          </div>
         </div>
         <div id="weekly-plan-list" class="weekly-day-list"></div>
       </div>
@@ -1122,43 +1436,55 @@ if (task) {
         <form id="weekly-plan-form">
           <div class="dialog-head">
             <h2>学習計画</h2>
-            <button type="button" class="close-dialog" id="weekly-close-dialog">×</button>
+            <button type="button" class="close-dialog"
+              id="weekly-close-dialog">×</button>
           </div>
 
           <input type="hidden" id="weekly-plan-id">
 
-          <label>学習内容
+          <label>
+            学習内容
             <input id="weekly-plan-title" maxlength="120" required
               placeholder="例：数学・二次関数">
           </label>
 
-          <label>科目
-            <input id="weekly-plan-subject" maxlength="60" placeholder="例：数学">
+          <label>
+            科目
+            <input id="weekly-plan-subject" maxlength="60"
+              placeholder="例：数学">
           </label>
 
-          <label>学習項目
-            <input id="weekly-plan-item" maxlength="100" placeholder="例：問題集 p.20〜25">
+          <label>
+            学習項目
+            <input id="weekly-plan-item" maxlength="100"
+              placeholder="例：問題集 p.20〜25">
           </label>
 
-          <label>日付
+          <label>
+            日付
             <input id="weekly-plan-date" type="date" required>
           </label>
 
           <div class="form-row">
-            <label>開始時刻
+            <label>
+              開始時刻
               <input id="weekly-plan-start" type="time" required>
             </label>
-            <label>終了時刻
+            <label>
+              終了時刻
               <input id="weekly-plan-end" type="time" required>
             </label>
           </div>
 
-          <label>メモ
-            <textarea id="weekly-plan-notes" rows="2" maxlength="300"></textarea>
+          <label>
+            メモ
+            <textarea id="weekly-plan-notes"
+              rows="2" maxlength="300"></textarea>
           </label>
 
           <div class="dialog-actions">
-            <button type="button" class="secondary-button" id="weekly-cancel-plan">キャンセル</button>
+            <button type="button" class="secondary-button"
+              id="weekly-cancel-plan">キャンセル</button>
             <button type="submit" class="primary-button">保存</button>
           </div>
         </form>
@@ -1177,19 +1503,27 @@ if (task) {
       activeTab = tab;
 
       tabs.querySelectorAll(".schedule-tab").forEach(button => {
-        button.classList.toggle("active", button.dataset.scheduleTab === tab);
+        button.classList.toggle(
+          "active",
+          button.dataset.scheduleTab === tab
+        );
       });
 
       planner.hidden = tab !== "weekly";
+
       existingCalendarPanels.forEach(panel => {
         panel.hidden = tab === "weekly";
       });
 
-      if (tab === "weekly") renderWeekly();
+      if (tab === "weekly") {
+        renderWeekly();
+      }
     }
 
     tabs.querySelectorAll("[data-schedule-tab]").forEach(button => {
-      button.addEventListener("click", () => selectTab(button.dataset.scheduleTab));
+      button.addEventListener("click", () => {
+        selectTab(button.dataset.scheduleTab);
+      });
     });
 
     $("#weekly-prev").addEventListener("click", () => {
@@ -1202,7 +1536,9 @@ if (task) {
       renderWeekly();
     });
 
-    $("#weekly-add-plan").addEventListener("click", () => openPlanDialog());
+    $("#weekly-add-plan").addEventListener("click", () => {
+      openPlanDialog();
+    });
 
     $("#weekly-close-dialog").addEventListener("click", closePlanDialog);
     $("#weekly-cancel-plan").addEventListener("click", closePlanDialog);
@@ -1215,62 +1551,52 @@ if (task) {
     selectTab("weekly");
   }
 
+  // =========================================================
+  // 初期化・更新監視
+  // =========================================================
+
   function init() {
     injectStyles();
     setupUI();
 
-    // 学習記録が別タブで更新された場合にも再描画
+    // 別タブや別画面で保存データが変更された場合に再描画する。
     window.addEventListener("storage", event => {
-  if (
-    ![
-      STORAGE.study,
-      STORAGE.events,
-      STORAGE.tasks,
-      STORAGE.weekly
-    ].includes(event.key)
-  ) {
-    return;
-  }
+      if (
+        ![
+          STORAGE.study,
+          STORAGE.events,
+          STORAGE.tasks,
+          STORAGE.weekly
+        ].includes(event.key)
+      ) {
+        return;
+      }
 
-  if (event.key === STORAGE.study) {
-    const updatedStudy = read(STORAGE.study, study);
+      syncStoredData();
+      renderWeekly();
+    });
 
-    if (Array.isArray(updatedStudy.records)) {
-      study.records = updatedStudy.records;
-    }
-  }
+    // app.js が予定を追加・編集・削除した後の再描画用。
+    // 同じ画面内の更新イベントにも対応する。
+    window.addEventListener("oneforall-calendar-updated", () => {
+      syncStoredData();
+      renderWeekly();
+    });
 
-  if (event.key === STORAGE.events) {
-    const updatedEvents = read(STORAGE.events, []);
-
-    calendarEvents = Array.isArray(updatedEvents)
-      ? updatedEvents
-      : [];
-  }
-
-  if (event.key === STORAGE.tasks) {
-    const updatedTasks = read(STORAGE.tasks, []);
-
-    calendarTasks = Array.isArray(updatedTasks)
-      ? updatedTasks
-      : [];
-  }
-
-  if (event.key === STORAGE.weekly) {
-    const updatedPlans = read(STORAGE.weekly, []);
-
-    if (Array.isArray(updatedPlans)) {
-      plans = updatedPlans;
-    }
-  }
-
-  renderWeekly();
-});
+    window.addEventListener("oneforall-study-updated", () => {
+      syncStoredData();
+      renderWeekly();
+    });
   }
 
   window.OneForAllWeeklyPlanner = {
-    refresh: renderWeekly,
+    refresh: () => {
+      syncStoredData();
+      renderWeekly();
+    },
+
     getPlans: () => [...plans],
+
     getActualMinutes: actualMinutesForPlan
   };
 
