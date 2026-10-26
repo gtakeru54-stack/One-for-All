@@ -2,17 +2,15 @@
 /* =========================================================
    ONE FOR ALL COSMOS
    css/style.css
-   宇宙デザイン・スマートフォン対応・全画面共通スタイル
+   スマートフォン最適化・レイアウト改善版
    ========================================================= */
-
-/* ---------- 基本設定 ---------- */
 
 :root {
   color-scheme: dark;
 
   --bg-main: #070b19;
   --bg-secondary: #0c1228;
-  --bg-panel: rgba(17, 26, 53, 0.88);
+  --bg-panel: rgba(17, 26, 53, 0.92);
   --bg-panel-light: rgba(27, 39, 75, 0.78);
   --bg-input: #0a1024;
 
@@ -31,18 +29,16 @@
   --border: rgba(157, 176, 255, 0.17);
   --border-strong: rgba(157, 176, 255, 0.34);
 
-  --shadow:
-    0 12px 35px rgba(0, 0, 0, 0.22);
-
-  --glow:
-    0 0 25px rgba(119, 137, 255, 0.12);
+  --shadow: 0 12px 35px rgba(0, 0, 0, 0.22);
+  --glow: 0 0 25px rgba(119, 137, 255, 0.12);
 
   --radius-small: 10px;
   --radius-medium: 17px;
   --radius-large: 24px;
 
-  --nav-height: 70px;
+  --nav-height: 68px;
   --content-width: 1180px;
+  --page-gutter: 16px;
 
   font-family:
     -apple-system,
@@ -64,6 +60,7 @@
 }
 
 html {
+  width: 100%;
   min-height: 100%;
   background: var(--bg-main);
   scroll-behavior: smooth;
@@ -71,6 +68,8 @@ html {
 }
 
 body {
+  width: 100%;
+  min-width: 0;
   min-height: 100vh;
   margin: 0;
   color: var(--text-main);
@@ -92,7 +91,7 @@ body {
     ),
     var(--bg-main);
   line-height: 1.6;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 button,
@@ -148,7 +147,7 @@ img {
 }
 
 ::selection {
-  color: #ffffff;
+  color: #fff;
   background: rgba(123, 140, 255, 0.48);
 }
 
@@ -161,21 +160,29 @@ img {
 #app-main {
   width: 100%;
   max-width: var(--content-width);
+  min-width: 0;
   min-height: 100vh;
   margin: 0 auto;
   padding:
-    max(18px, env(safe-area-inset-top))
-    18px
-    calc(var(--nav-height) + 34px + env(safe-area-inset-bottom));
+    max(14px, env(safe-area-inset-top))
+    var(--page-gutter)
+    calc(var(--nav-height) + 24px + env(safe-area-inset-bottom));
+}
+
+#app-main > *,
+.page-section,
+main > section[id^="view-"] {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .page-section {
   width: 100%;
-  min-width: 0;
-  animation: page-enter 0.24s ease both;
+  animation: page-enter 0.2s ease both;
 }
 
-.page-section[hidden] {
+.page-section[hidden],
+main > section[hidden] {
   display: none !important;
 }
 
@@ -186,7 +193,7 @@ img {
 @keyframes page-enter {
   from {
     opacity: 0;
-    transform: translateY(5px);
+    transform: translateY(4px);
   }
 
   to {
@@ -199,39 +206,51 @@ img {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  margin: 8px 0 24px;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 8px 0 20px;
+}
+
+.page-header > *,
+.section-heading > * {
+  min-width: 0;
 }
 
 .page-header h1,
 .page-title {
   margin: 0;
-  font-size: clamp(24px, 5vw, 34px);
+  font-size: clamp(23px, 6vw, 34px);
   font-weight: 800;
-  line-height: 1.25;
-  letter-spacing: 0.025em;
+  line-height: 1.3;
+  letter-spacing: 0.015em;
+  overflow-wrap: anywhere;
 }
 
 .page-header p,
 .page-description {
-  margin: 8px 0 0;
+  margin: 7px 0 0;
   color: var(--text-sub);
   font-size: 13px;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  line-break: strict;
 }
 
 .section-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin: 28px 0 14px;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 24px 0 12px;
 }
 
 .section-heading h2,
 .section-title {
   margin: 0;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 750;
+  overflow-wrap: anywhere;
 }
 
 .section-heading p {
@@ -265,49 +284,52 @@ img {
 .stack {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
+  min-width: 0;
 }
 
 .inline-group {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .spread {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .divider {
   width: 100%;
   height: 1px;
-  margin: 16px 0;
+  margin: 14px 0;
   border: 0;
   background: var(--border);
 }
 
-/* ---------- ブランド・ロゴ ---------- */
+/* ---------- ブランド ---------- */
 
 .brand,
 .app-brand {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 10px;
   min-width: 0;
 }
 
 .brand-mark {
   display: grid;
-  flex: 0 0 42px;
-  width: 42px;
-  height: 42px;
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
   place-items: center;
   border: 1px solid rgba(157, 176, 255, 0.38);
-  border-radius: 14px;
+  border-radius: 13px;
   background:
     radial-gradient(
       circle at 30% 25%,
@@ -316,22 +338,22 @@ img {
     ),
     linear-gradient(135deg, #35488b, #171c42 75%);
   box-shadow: 0 0 24px rgba(106, 127, 255, 0.17);
-  color: #ffffff;
-  font-size: 21px;
+  color: #fff;
+  font-size: 20px;
 }
 
 .brand-name {
   margin: 0;
   font-size: 14px;
   font-weight: 900;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
 }
 
 .brand-subtitle {
   margin: 2px 0 0;
   color: var(--text-sub);
   font-size: 9px;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.15em;
 }
 
 /* ---------- カード ---------- */
@@ -340,8 +362,9 @@ img {
 .panel,
 .stat-card,
 .content-card {
+  width: 100%;
   min-width: 0;
-  padding: 18px;
+  padding: 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-medium);
   background:
@@ -370,7 +393,15 @@ img {
 .stats-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 13px;
+  gap: 12px;
+  min-width: 0;
+}
+
+.card-grid > *,
+.dashboard-grid > *,
+.stats-grid > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .card-label {
@@ -381,9 +412,9 @@ img {
 
 .card-value {
   margin: 0;
-  font-size: clamp(23px, 6vw, 32px);
+  font-size: clamp(22px, 6vw, 32px);
   font-weight: 850;
-  line-height: 1.2;
+  line-height: 1.25;
   overflow-wrap: anywhere;
 }
 
@@ -398,25 +429,27 @@ img {
   margin: 8px 0 0;
   color: var(--text-sub);
   font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 .card-icon {
   display: grid;
-  width: 38px;
-  height: 38px;
-  flex: 0 0 38px;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
   place-items: center;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: rgba(130, 148, 255, 0.1);
-  font-size: 19px;
+  font-size: 18px;
 }
 
 .card-top {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
+  min-width: 0;
 }
 
 /* ---------- ホーム ---------- */
@@ -424,7 +457,7 @@ img {
 .home-hero {
   position: relative;
   overflow: hidden;
-  padding: 23px 20px;
+  padding: 22px 17px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-large);
   background:
@@ -449,7 +482,7 @@ img {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #ffffff;
+  background: #fff;
   box-shadow:
     -42px 22px 0 rgba(255, 255, 255, 0.6),
     -18px 66px 0 rgba(255, 255, 255, 0.4),
@@ -461,16 +494,18 @@ img {
 .home-hero h1 {
   max-width: 600px;
   margin: 0;
-  font-size: clamp(25px, 6vw, 39px);
+  font-size: clamp(24px, 6vw, 39px);
   font-weight: 900;
-  line-height: 1.25;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .home-hero p {
   max-width: 520px;
-  margin: 12px 0 0;
+  margin: 10px 0 0;
   color: var(--text-sub);
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .home-hero > * {
@@ -489,8 +524,12 @@ img {
 .home-action {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin: 18px 0;
+  gap: 10px;
+  margin: 15px 0;
+}
+
+.home-action > * {
+  min-width: 0;
 }
 
 /* ---------- ボタン ---------- */
@@ -504,16 +543,19 @@ img {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 7px;
+  min-width: 0;
   min-height: 42px;
-  padding: 10px 15px;
+  padding: 10px 13px;
   border: 1px solid var(--border-strong);
   border-radius: 12px;
   background: rgba(91, 108, 177, 0.15);
   color: var(--text-main);
   font-size: 13px;
   font-weight: 750;
+  line-height: 1.4;
   text-align: center;
+  overflow-wrap: anywhere;
   cursor: pointer;
   transition:
     background 0.18s ease,
@@ -541,7 +583,7 @@ img {
   border-color: transparent;
   background: linear-gradient(110deg, #6f83ff, #987bff);
   box-shadow: 0 5px 20px rgba(119, 120, 255, 0.2);
-  color: #ffffff;
+  color: #fff;
 }
 
 .primary-button:hover {
@@ -549,10 +591,10 @@ img {
 }
 
 .primary-button.large {
-  min-height: 58px;
-  padding: 15px 20px;
-  border-radius: 16px;
-  font-size: 16px;
+  min-height: 52px;
+  padding: 13px 17px;
+  border-radius: 15px;
+  font-size: 15px;
 }
 
 .secondary-button {
@@ -579,11 +621,12 @@ img {
 .button-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 9px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .button-row > button {
-  flex: 1 1 auto;
+  flex: 1 1 110px;
 }
 
 /* ---------- フォーム ---------- */
@@ -591,7 +634,8 @@ img {
 .form-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 14px;
+  gap: 12px;
+  min-width: 0;
 }
 
 .form-field {
@@ -611,6 +655,7 @@ img {
 input,
 select,
 textarea {
+  display: block;
   width: 100%;
   min-width: 0;
   min-height: 44px;
@@ -661,7 +706,7 @@ select {
   font-size: 11px;
 }
 
-/* ---------- バッジ・状態表示 ---------- */
+/* ---------- バッジ ---------- */
 
 .badge,
 .tag,
@@ -748,7 +793,7 @@ select {
 /* ---------- タイマー ---------- */
 
 .timer-panel {
-  padding: 25px 18px;
+  padding: 22px 15px;
   border-color: rgba(82, 200, 255, 0.25);
   background:
     radial-gradient(
@@ -765,10 +810,10 @@ select {
 #study-timer-display {
   margin: 10px 0 18px;
   color: #e4edff;
-  font-size: clamp(42px, 13vw, 68px);
+  font-size: clamp(38px, 12vw, 68px);
   font-weight: 850;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.035em;
+  letter-spacing: 0.025em;
   line-height: 1.2;
 }
 
@@ -776,11 +821,12 @@ select {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .timer-controls button {
-  min-width: 105px;
+  flex: 1 1 100px;
+  max-width: 180px;
 }
 
 /* ---------- 学習記録・一覧 ---------- */
@@ -790,7 +836,8 @@ select {
 .item-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 9px;
+  min-width: 0;
 }
 
 .list-item,
@@ -799,9 +846,9 @@ select {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
-  padding: 13px;
+  padding: 12px;
   border: 1px solid var(--border);
   border-radius: 13px;
   background: rgba(10, 16, 36, 0.65);
@@ -828,20 +875,23 @@ select {
 }
 
 .list-item-value {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
   color: var(--accent-blue);
   font-size: 12px;
   font-weight: 800;
   text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .empty-state {
-  padding: 28px 16px;
+  padding: 22px 14px;
   border: 1px dashed var(--border-strong);
   border-radius: 15px;
   color: var(--text-sub);
   font-size: 12px;
   text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .empty-state strong {
@@ -858,23 +908,27 @@ select {
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 15px;
+  gap: 9px;
+  margin-bottom: 13px;
 }
 
 .calendar-month-title {
   margin: 0;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 850;
+  overflow-wrap: anywhere;
 }
 
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 4px;
+  gap: 3px;
+  width: 100%;
+  min-width: 0;
 }
 
 .calendar-weekday {
+  min-width: 0;
   padding: 7px 0;
   color: var(--text-sub);
   font-size: 10px;
@@ -889,10 +943,10 @@ select {
   align-items: center;
   justify-content: flex-start;
   min-width: 0;
-  min-height: 54px;
-  padding: 7px 2px;
+  min-height: 48px;
+  padding: 6px 1px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 8px;
   background: rgba(13, 20, 43, 0.7);
   color: var(--text-main);
   font-size: 12px;
@@ -924,7 +978,7 @@ select {
   justify-content: center;
   flex-wrap: wrap;
   gap: 3px;
-  margin-top: 5px;
+  margin-top: 4px;
 }
 
 .calendar-dot {
@@ -942,18 +996,43 @@ select {
   background: var(--accent-yellow);
 }
 
-/* ---------- 週間時間割：表形式を維持 ---------- */
+/* カレンダー内の説明文が縦に潰れるのを防ぐ */
+.calendar-card,
+.calendar-panel,
+#view-calendar .card,
+#view-calendar .panel {
+  min-width: 0;
+  max-width: 100%;
+}
+
+#view-calendar p,
+#view-calendar h1,
+#view-calendar h2,
+#view-calendar h3,
+#view-calendar label {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+#view-calendar .calendar-grid {
+  min-width: 0;
+}
+
+/* ---------- 週間時間割 ---------- */
 
 .timetable-wrapper,
 .table-scroll {
+  display: block;
   width: 100%;
   max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: rgba(9, 14, 31, 0.78);
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
   scrollbar-width: thin;
   scrollbar-color: rgba(139, 157, 255, 0.35) transparent;
 }
@@ -969,6 +1048,7 @@ select {
 
 .timetable,
 .weekly-timetable {
+  width: max(100%, 720px);
   min-width: 720px;
   table-layout: fixed;
 }
@@ -1074,15 +1154,16 @@ select {
 /* ---------- グラフ ---------- */
 
 .chart-card {
+  width: 100%;
   min-width: 0;
-  padding: 17px;
+  padding: 15px;
   border: 1px solid var(--border);
   border-radius: var(--radius-medium);
   background: var(--bg-panel);
 }
 
 .chart-card h3 {
-  margin: 0 0 13px;
+  margin: 0 0 12px;
   font-size: 14px;
 }
 
@@ -1090,7 +1171,7 @@ select {
   position: relative;
   width: 100%;
   min-width: 0;
-  min-height: 190px;
+  min-height: 180px;
 }
 
 .chart-container canvas,
@@ -1104,7 +1185,7 @@ select {
 .chart-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 13px;
+  gap: 8px 12px;
   margin-top: 12px;
 }
 
@@ -1128,6 +1209,7 @@ select {
 .goal-map-panel {
   position: relative;
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-large);
@@ -1143,7 +1225,7 @@ select {
 .goal-map-viewport {
   position: relative;
   width: 100%;
-  min-height: 380px;
+  min-height: 360px;
   overflow: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
@@ -1239,7 +1321,7 @@ select {
 .rocket-hero {
   position: relative;
   overflow: hidden;
-  padding: 24px 18px;
+  padding: 22px 16px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-large);
   background:
@@ -1254,8 +1336,8 @@ select {
 
 .rocket-illustration {
   display: grid;
-  width: 125px;
-  height: 145px;
+  width: 120px;
+  height: 135px;
   margin: 0 auto 15px;
   place-items: center;
   border-radius: 50%;
@@ -1264,7 +1346,7 @@ select {
     rgba(139, 157, 255, 0.14),
     transparent 70%
   );
-  font-size: 76px;
+  font-size: 72px;
   filter: drop-shadow(0 0 18px rgba(139, 157, 255, 0.25));
 }
 
@@ -1278,8 +1360,9 @@ select {
 
 .rocket-name {
   margin: 7px 0 15px;
-  font-size: 24px;
+  font-size: 23px;
   font-weight: 900;
+  overflow-wrap: anywhere;
 }
 
 /* ---------- カウントダウン ---------- */
@@ -1287,7 +1370,7 @@ select {
 .countdown-card {
   position: relative;
   overflow: hidden;
-  padding: 18px;
+  padding: 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-medium);
   background: linear-gradient(145deg, #172246, #0c1227);
@@ -1296,7 +1379,7 @@ select {
 .countdown-days {
   margin: 10px 0 4px;
   color: var(--accent-blue);
-  font-size: 35px;
+  font-size: 34px;
   font-weight: 900;
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
@@ -1309,10 +1392,10 @@ select {
   font-weight: 600;
 }
 
-/* ---------- 経済・取引 ---------- */
+/* ---------- 経済 ---------- */
 
 .balance-card {
-  padding: 22px 18px;
+  padding: 20px 16px;
   border: 1px solid rgba(97, 230, 188, 0.24);
   border-radius: var(--radius-large);
   background:
@@ -1327,7 +1410,7 @@ select {
 .balance-value {
   margin: 9px 0;
   color: var(--accent-green);
-  font-size: clamp(29px, 8vw, 42px);
+  font-size: clamp(27px, 7vw, 42px);
   font-weight: 900;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
@@ -1337,8 +1420,8 @@ select {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 13px 0;
+  gap: 10px;
+  padding: 12px 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -1350,6 +1433,7 @@ select {
   font-size: 13px;
   font-weight: 850;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 .transaction-amount.positive {
@@ -1364,7 +1448,7 @@ select {
 
 dialog,
 .app-dialog {
-  width: min(92vw, 520px);
+  width: calc(100% - 28px);
   max-width: 520px;
   max-height: min(85vh, 780px);
   padding: 0;
@@ -1382,7 +1466,7 @@ dialog::backdrop {
 }
 
 .dialog-content {
-  padding: 22px;
+  padding: 18px;
 }
 
 .dialog-header {
@@ -1390,37 +1474,39 @@ dialog::backdrop {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 
 .dialog-header h2 {
   margin: 0;
   font-size: 18px;
+  overflow-wrap: anywhere;
 }
 
 .dialog-footer {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 9px;
-  margin-top: 20px;
+  gap: 8px;
+  margin-top: 18px;
 }
 
-/* ---------- 通知・メッセージ ---------- */
+/* ---------- 通知 ---------- */
 
 .toast,
 #toast,
 #message-area,
-.message-area {
+.message-area,
+#cosmos-message {
   position: fixed;
   z-index: 1000;
-  right: 16px;
-  bottom: calc(var(--nav-height) + 18px + env(safe-area-inset-bottom));
-  left: 16px;
+  right: 12px;
+  bottom: calc(var(--nav-height) + 12px + env(safe-area-inset-bottom));
+  left: 12px;
   width: fit-content;
-  max-width: calc(100vw - 32px);
+  max-width: calc(100vw - 24px);
   margin: 0 auto;
-  padding: 12px 16px;
+  padding: 11px 15px;
   border: 1px solid var(--border-strong);
   border-radius: 13px;
   background: rgba(20, 31, 62, 0.97);
@@ -1430,15 +1516,22 @@ dialog::backdrop {
   overflow-wrap: anywhere;
 }
 
-.toast.success {
+.toast.success,
+#cosmos-message.success {
   border-color: rgba(97, 230, 188, 0.45);
 }
 
-.toast.error {
+.toast.error,
+#cosmos-message.error {
   border-color: rgba(255, 129, 157, 0.45);
 }
 
-/* ---------- 下部ナビゲーション ---------- */
+/* ---------- 下部ショートカット ---------- */
+
+/*
+  今は既存HTMLとの互換性を維持する。
+  設定式ショートカットへの変更はHTMLとJSの変更後に行う。
+*/
 
 .bottom-nav,
 #bottom-nav,
@@ -1451,11 +1544,11 @@ dialog::backdrop {
   display: flex;
   align-items: stretch;
   justify-content: space-around;
-  gap: 3px;
+  gap: 4px;
   min-height: var(--nav-height);
-  padding: 7px 8px calc(7px + env(safe-area-inset-bottom));
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
   border-top: 1px solid rgba(157, 176, 255, 0.2);
-  background: rgba(7, 11, 25, 0.94);
+  background: rgba(7, 11, 25, 0.96);
   box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.2);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
@@ -1473,16 +1566,18 @@ dialog::backdrop {
   justify-content: center;
   gap: 3px;
   min-width: 0;
-  min-height: 48px;
+  min-height: 46px;
   padding: 5px 2px;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: 11px;
   background: transparent;
   color: var(--text-muted);
   font-size: 9px;
   font-weight: 700;
+  line-height: 1.25;
   text-align: center;
   text-decoration: none;
+  overflow-wrap: anywhere;
   cursor: pointer;
 }
 
@@ -1507,22 +1602,38 @@ dialog::backdrop {
 
 .bottom-nav .nav-icon,
 .bottom-navigation .nav-icon {
-  font-size: 19px;
+  font-size: 18px;
   line-height: 1.2;
+}
+
+/* ---------- 上部ヘッダー（既存要素がある場合） ---------- */
+
+.app-header,
+.top-header,
+.site-header {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.app-header > *,
+.top-header > *,
+.site-header > * {
+  min-width: 0;
 }
 
 /* ---------- 設定 ---------- */
 
 .settings-group {
-  margin-bottom: 20px;
-  padding: 17px;
+  margin-bottom: 16px;
+  padding: 15px;
   border: 1px solid var(--border);
   border-radius: var(--radius-medium);
   background: var(--bg-panel);
 }
 
 .settings-group h2 {
-  margin: 0 0 14px;
+  margin: 0 0 12px;
   font-size: 15px;
 }
 
@@ -1530,8 +1641,8 @@ dialog::backdrop {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  padding: 12px 0;
+  gap: 12px;
+  padding: 11px 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -1547,18 +1658,20 @@ dialog::backdrop {
 .setting-info strong {
   display: block;
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .setting-info p {
   margin: 4px 0 0;
   color: var(--text-sub);
   font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 /* ---------- フッター ---------- */
 
 .app-footer {
-  padding: 24px 0 10px;
+  padding: 22px 0 10px;
   color: var(--text-muted);
   font-size: 10px;
   text-align: center;
@@ -1567,9 +1680,8 @@ dialog::backdrop {
 /* ---------- タブレット ---------- */
 
 @media (min-width: 600px) {
-  #app-main {
-    padding-right: 26px;
-    padding-left: 26px;
+  :root {
+    --page-gutter: 24px;
   }
 
   .card-grid,
@@ -1596,12 +1708,12 @@ dialog::backdrop {
   }
 
   .calendar-day {
-    min-height: 75px;
-    padding: 10px 5px;
+    min-height: 68px;
+    padding: 8px 4px;
   }
 
   .goal-map-viewport {
-    min-height: 500px;
+    min-height: 480px;
   }
 }
 
@@ -1609,12 +1721,12 @@ dialog::backdrop {
 
 @media (min-width: 900px) {
   :root {
-    --nav-height: 76px;
+    --nav-height: 70px;
   }
 
   #app-main {
-    padding-top: 30px;
-    padding-bottom: 42px;
+    padding-top: 28px;
+    padding-bottom: 36px;
   }
 
   .card-grid,
@@ -1651,12 +1763,13 @@ dialog::backdrop {
   .toast,
   #toast,
   #message-area,
-  .message-area {
-    bottom: 100px;
+  .message-area,
+  #cosmos-message {
+    bottom: 90px;
   }
 
   .timer-panel {
-    padding: 32px;
+    padding: 30px;
   }
 
   .goal-map-canvas {
@@ -1667,20 +1780,30 @@ dialog::backdrop {
 /* ---------- 小さなスマートフォン ---------- */
 
 @media (max-width: 380px) {
-  #app-main {
-    padding-right: 12px;
-    padding-left: 12px;
+  :root {
+    --page-gutter: 11px;
   }
 
   .card,
   .panel,
   .stat-card,
   .content-card {
-    padding: 14px;
+    padding: 13px;
   }
 
   .home-hero {
-    padding: 19px 15px;
+    padding: 18px 14px;
+  }
+
+  .calendar-grid {
+    gap: 2px;
+  }
+
+  .calendar-day {
+    min-height: 43px;
+    padding: 5px 1px;
+    border-radius: 6px;
+    font-size: 11px;
   }
 
   .bottom-nav,
@@ -1698,17 +1821,15 @@ dialog::backdrop {
 
   .bottom-nav .nav-icon,
   .bottom-navigation .nav-icon {
-    font-size: 17px;
+    font-size: 16px;
   }
 
-  .calendar-grid {
-    gap: 2px;
+  .button-row > button {
+    flex-basis: 100%;
   }
 
-  .calendar-day {
-    min-height: 46px;
-    border-radius: 7px;
-    font-size: 11px;
+  .dialog-content {
+    padding: 15px;
   }
 }
 
