@@ -1613,10 +1613,27 @@
       });
 
       console.info("ONE FOR ALL — COSMOS 起動完了");
-    } catch (error) {
-      console.error("COSMOSの起動中にエラーが発生しました:", error);
-      notify("起動中にエラーが発生しました。ブラウザのコンソールを確認してください。");
-    }
+    } 
+} catch (error) {
+  console.error("COSMOSの起動中にエラーが発生しました:", error);
+
+  const message = error instanceof Error
+    ? `${error.name}: ${error.message}`
+    : String(error);
+
+  const toast = document.querySelector("#toast");
+
+  if (toast) {
+    toast.textContent = `起動エラー：${message}`;
+    toast.classList.add("visible");
+    toast.style.whiteSpace = "normal";
+    toast.style.overflowWrap = "anywhere";
+    toast.style.zIndex = "99999";
+  } else {
+    alert(`起動エラー：${message}`);
+  }
+}
+
   }
 
   if (document.readyState === "loading") {
