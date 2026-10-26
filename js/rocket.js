@@ -1,340 +1,673 @@
-/* =========================================================
-   ONE FOR ALL — COSMOS
-   js/rocket.js
-   CR・借金・利息・返済・取引履歴
-   ========================================================= */
 
 "use strict";
 
+/*
+ * ONE FOR ALL — COSMOS
+ * js/rocket.js
+ *
+ * ロケット開発・経験値・レベル管理
+ *
+ * 基本方針:
+ * - 学習時間に応じて経験値を獲得する
+ * - 経験値からレベルを計算する
+ * - 開発ポイントでロケット部品を成長させる
+ * - 学習記録1件につき報酬を二重付与しない
+ * - ミッション・打ち上げとの連携に備える
+ *
+ * 注意:
+ * このファイルはデータ管理用です。
+ * 画面表示やアニメーションは別モジュールで接続します。
+ */
+
 import {
-  loadData,
+  STORAGE_KEYS,
+  loadObject,
   saveData,
-  createId,
-  formatCredits,
-  escapeHTML
+  createId
 } from "./storage.js";
 
-const ROCKET_STORAGE_KEY = "oneforall-rocket-v1";
-const DAILY_INTEREST_RATE = 0.05;
-const DEBT_LIMIT = 10000;
+import {
+  loadStudyData
+} from "./study.js";
 
-let rocketData = {
-  cr: 0,
-  debt: 0,
-  unpaid: 0,
-  lastInterestDate: "",
-  transactions: [],
-  penalties: []
+// --------------------------------------------------
+// 保存設定
+// --------------------------------------------------
+
+const ROCKET_STORAGE_KEY =
+  STORAGE_KEYS?.progression ?? "oneforall-progression-v1";
+
+const DEFAULT_STATE = {
+  version: 1,
+
+  totalExp: 0,
+  level: 1,
+
+  developmentPoints: 0,
+  spentDevelopmentPoints: 0,
+
+  totalStudySeconds: 0,
+  rewardedRecordIds: [],
+
+  parts: {
+    body: 0,
+    engine: 0,
+    fuelTank: 0,
+    noseCone: 0
+  },
+
+  unlockedParts: [
+    "body"
+  ],
+
+  updatedAt: null
 };
 
-function todayKey() {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+// --------------------------------------------------
+// 基本処理
+// --------------------------------------------------
+
+function cloneDefaultState() {
+  return JSON.parse(JSON.stringify(DEFAULT_STATE));
 }
 
-function normalizeRocketData(data) {
-  return {
-    cr: Math.max(0, Number(data?.cr) || 0),
-    debt: Math.max(0, Number(data?.debt) || 0),
-    unpaid: Math.max(0, Number(data?.unpaid) || 0),
-    lastInterestDate: data?.lastInterestDate || "",
-    transactions: Array.isArray(data?.transactions) ? data.transactions : [],
-    penalties: Array.isArray(data?.penalties) ? data.penalties : []
-  };
-}
+function normalizeNonNegativeInteger(value) {
+  const number = Number(value);
 
-function saveRocket() {
-  saveData(ROCKET_STORAGE_KEY, rocketData);
-  renderRocket();
-  window.dispatchEvent(new Event("cosmos:datachange"));
-}
-
-function addTransaction(type, amount, description) {
-  rocketData.transactions.unshift({
-    id: createId("transaction"),
-    type,
-    amount: Math.round(amount),
-    description,
-    date: new Date().toISOString()
-  });
-
-  rocketData.transactions = rocketData.transactions.slice(0, 500);
-}
-
-function daysBetween(startKey, endKey) {
-  if (!startKey || !endKey) return 0;
-
-  const start = new Date(`${startKey}T00:00:00`);
-  const end = new Date(`${endKey}T00:00:00`);
-
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
-
-  return Math.max(0, Math.floor((end - start) / 86400000));
-}
-
-function applyDailyInterest() {
-  const today = todayKey();
-
-  if (!rocketData.lastInterestDate) {
-    rocketData.lastInterestDate = today;
-    saveData(ROCKET_STORAGE_KEY, rocketData);
-    return;
+  if (!Number.isFinite(number) || number < 0) {
+    return 0;
   }
 
-  const elapsedDays = daysBetween(rocketData.lastInterestDate, today);
+  return Math.floor(number);
+}
 
-  if (elapsedDays <= 0 || rocketData.debt <= 0) {
-    if (elapsedDays > 0) {
-      rocketData.lastInterestDate = today;
-      saveData(ROCKET_STORAGE_KEY, rocketData);
-    }
-    return;
-  }
+function normalizeState(raw = {}) {
+  const defaults = cloneDefaultState();
 
-  const before = rocketData.debt;
-  rocketData.debt = Math.ceil(
-    rocketData.debt * Math.pow(1 + DAILY_INTEREST_RATE, elapsedDays)
-  );
+  const parts = raw.parts && typeof raw.parts === "object"
+    ? raw.parts
+    : {};
 
-  const interest = rocketData.debt - before;
+  const validParts = {};
 
-  if (interest > 0) {
-    addTransaction(
-      "interest",
-      interest,
-      `${elapsedDays}日分の借金利息（日利5%・複利）`
+  for (const key of Object.keys(defaults.parts)) {
+    validParts[key] = normalizeNonNegativeInteger(
+      parts[key]
     );
   }
 
-  rocketData.lastInterestDate = today;
-  saveData(ROCKET_STORAGE_KEY, rocketData);
+  const rewardedRecordIds = Array.isArray(
+    raw.rewardedRecordIds
+  )
+    ? [
+        ...new Set(
+          raw.rewardedRecordIds
+            .filter(id => typeof id === "string")
+        )
+      ]
+    : [];
+
+  const unlockedParts = Array.isArray(raw.unlockedParts)
+    ? [
+        ...new Set(
+          raw.unlockedParts.filter(id =>
+            Object.hasOwn(defaults.parts, id)
+          )
+        )
+      ]
+    : [...defaults.unlockedParts];
+
+  if (!unlockedParts.includes("body")) {
+    unlockedParts.unshift("body");
+  }
+
+  const state = {
+    ...defaults,
+    ...raw,
+
+    totalExp: normalizeNonNegativeInteger(raw.totalExp),
+    level: 1,
+
+    developmentPoints: normalizeNonNegativeInteger(
+      raw.developmentPoints
+    ),
+
+    spentDevelopmentPoints: normalizeNonNegativeInteger(
+      raw.spentDevelopmentPoints
+    ),
+
+    totalStudySeconds: normalizeNonNegativeInteger(
+      raw.totalStudySeconds
+    ),
+
+    rewardedRecordIds,
+
+    parts: validParts,
+    unlockedParts
+  };
+
+  state.level = getLevelForExp(state.totalExp);
+
+  return state;
 }
 
-function renderTransactions() {
-  const container =
-    document.querySelector("#rocket-history") ||
-    document.querySelector("#transaction-history") ||
-    document.querySelector("#rocket-transactions");
+function readState() {
+  const stored = loadObject(ROCKET_STORAGE_KEY, {});
+  return normalizeState(stored);
+}
 
-  if (!container) return;
+function writeState(state) {
+  state.updatedAt = new Date().toISOString();
 
-  container.replaceChildren();
+  saveData(
+    ROCKET_STORAGE_KEY,
+    normalizeState(state)
+  );
+}
 
-  if (!rocketData.transactions.length) {
-    container.innerHTML = '<p class="empty-state">取引履歴はありません</p>';
+function notifyRocketChange(type, detail = {}) {
+  if (typeof document === "undefined") {
     return;
   }
 
-  rocketData.transactions.slice(0, 50).forEach((transaction) => {
-    const row = document.createElement("article");
-    row.className = "transaction-row";
-
-    const amount = Number(transaction.amount || 0);
-    const sign = ["income", "repayment"].includes(transaction.type) ? "+" : "";
-
-    row.innerHTML = `
-      <div>
-        <strong>${escapeHTML(transaction.description || transaction.type)}</strong>
-        <p>${escapeHTML(String(transaction.date || "").slice(0, 16).replace("T", " "))}</p>
-      </div>
-      <span>${sign}${formatCredits(amount)} CR</span>
-    `;
-
-    container.appendChild(row);
-  });
-}
-
-function renderRocket() {
-  const crTargets = [
-    "#rocket-cr",
-    "#current-cr",
-    "#finance-cr",
-    "[data-rocket-cr]"
-  ];
-
-  const debtTargets = [
-    "#rocket-debt",
-    "#current-debt",
-    "#finance-debt",
-    "[data-rocket-debt]"
-  ];
-
-  const unpaidTargets = [
-    "#rocket-unpaid",
-    "#unpaid-amount",
-    "[data-rocket-unpaid]"
-  ];
-
-  crTargets.forEach((selector) => {
-    document.querySelectorAll(selector).forEach((element) => {
-      element.textContent = formatCredits(rocketData.cr);
-    });
-  });
-
-  debtTargets.forEach((selector) => {
-    document.querySelectorAll(selector).forEach((element) => {
-      element.textContent = formatCredits(rocketData.debt);
-    });
-  });
-
-  unpaidTargets.forEach((selector) => {
-    document.querySelectorAll(selector).forEach((element) => {
-      element.textContent = formatCredits(rocketData.unpaid);
-    });
-  });
-
-  const interestLabel = document.querySelector("#rocket-interest-rate");
-  if (interestLabel) interestLabel.textContent = "日利5%（複利）";
-
-  const debtLimitLabel = document.querySelector("#rocket-debt-limit");
-  if (debtLimitLabel) debtLimitLabel.textContent = `${formatCredits(DEBT_LIMIT)} CR`;
-
-  renderTransactions();
-}
-
-export function getRocketData() {
-  return rocketData;
-}
-
-export function addCredits(amount, description = "CR獲得") {
-  const value = Math.floor(Number(amount));
-
-  if (!Number.isFinite(value) || value <= 0) return false;
-
-  rocketData.cr += value;
-  addTransaction("income", value, description);
-  saveRocket();
-  return true;
-}
-
-export function spendCredits(amount, description = "CR支出") {
-  const value = Math.floor(Number(amount));
-
-  if (!Number.isFinite(value) || value <= 0 || rocketData.cr < value) {
-    return false;
-  }
-
-  rocketData.cr -= value;
-  addTransaction("expense", value, description);
-  saveRocket();
-  return true;
-}
-
-/*
- * 期限超過時のペナルティ。
- * 同じ目標IDでは一度しか処理しない。
- * 不足分は借金にするが、借金上限10,000 CRを超える分は未払いに記録。
- */
-export function applyGoalPenalty(goalId, amount, description = "目標期限超過") {
-  if (!goalId || rocketData.penalties.includes(goalId)) return false;
-
-  const penalty = Math.max(0, Math.floor(Number(amount) || 0));
-  if (penalty <= 0) return false;
-
-  const paidFromCR = Math.min(rocketData.cr, penalty);
-  rocketData.cr -= paidFromCR;
-
-  const shortage = penalty - paidFromCR;
-  const availableDebt = Math.max(0, DEBT_LIMIT - rocketData.debt);
-  const newDebt = Math.min(shortage, availableDebt);
-  const unpaidAmount = shortage - newDebt;
-
-  rocketData.debt += newDebt;
-  rocketData.unpaid += unpaidAmount;
-  rocketData.penalties.push(goalId);
-
-  addTransaction(
-    "penalty",
-    penalty,
-    `${description}（CR支払い ${paidFromCR}、借金 ${newDebt}、未払い ${unpaidAmount}）`
-  );
-
-  saveRocket();
-  return true;
-}
-
-export function repayDebt(amount) {
-  const requested = Math.floor(Number(amount));
-
-  if (!Number.isFinite(requested) || requested <= 0) return false;
-  if (rocketData.cr <= 0 || rocketData.debt <= 0) return false;
-
-  const repayment = Math.min(requested, rocketData.cr, rocketData.debt);
-
-  rocketData.cr -= repayment;
-  rocketData.debt -= repayment;
-
-  addTransaction("repayment", repayment, "借金返済");
-  saveRocket();
-
-  return true;
-}
-
-function bindFinanceForm() {
-  const form =
-    document.querySelector("#repay-form") ||
-    document.querySelector("#rocket-repay-form");
-
-  form?.addEventListener("submit", (event) => {
-    event.preventDefault();
-
-    const amountInput =
-      form.querySelector('[name="amount"]') ||
-      document.querySelector("#repay-amount");
-
-    const amount = Number(amountInput?.value || 0);
-
-    if (repayDebt(amount)) {
-      form.reset();
-    } else {
-      const toast = document.querySelector("#toast");
-      if (toast) {
-        toast.textContent = "返済額または所持CRを確認してください";
-        toast.classList.add("visible");
+  document.dispatchEvent(
+    new CustomEvent("cosmos:rocket-change", {
+      detail: {
+        type,
+        ...detail
       }
-    }
-  });
-
-  document.querySelector("#rocket-open-finance")?.addEventListener("click", () => {
-    const dialog = document.querySelector("#rocket-finance-dialog");
-
-    if (dialog instanceof HTMLDialogElement) {
-      dialog.showModal();
-    } else if (dialog) {
-      dialog.hidden = false;
-    }
-  });
-
-  document.querySelector("#rocket-open-history")?.addEventListener("click", () => {
-    document.querySelector("#rocket-history")?.scrollIntoView({
-      behavior: "smooth",
-      block: "start"
-    });
-  });
-}
-
-export function initRocket() {
-  rocketData = normalizeRocketData(
-    loadData(ROCKET_STORAGE_KEY, {
-      cr: 0,
-      debt: 0,
-      unpaid: 0,
-      lastInterestDate: "",
-      transactions: [],
-      penalties: []
     })
   );
+}
 
-  applyDailyInterest();
-  bindFinanceForm();
-  renderRocket();
+// --------------------------------------------------
+// レベルと経験値
+// --------------------------------------------------
 
-  window.addEventListener("cosmos:viewchange", (event) => {
-    if (event.detail?.view === "rocket") renderRocket();
-  });
+/**
+ * 次のレベルまでに必要な累計経験値を取得します。
+ *
+ * レベル1: 0 EXP
+ * レベル2: 100 EXP
+ * レベル3: 250 EXP
+ * レベル4: 450 EXP
+ *
+ * レベルが上がるほど必要経験値が増えます。
+ */
+export function getExpRequiredForLevel(level) {
+  const targetLevel = Math.max(
+    1,
+    Math.floor(Number(level) || 1)
+  );
 
-  window.addEventListener("cosmos:datachange", renderRocket);
+  if (targetLevel === 1) {
+    return 0;
+  }
+
+  let total = 0;
+
+  for (let currentLevel = 1;
+       currentLevel < targetLevel;
+       currentLevel += 1) {
+    total += 100 + (currentLevel - 1) * 50;
+  }
+
+  return total;
+}
+
+/**
+ * 累計経験値からレベルを計算します。
+ */
+export function getLevelForExp(totalExp) {
+  const exp = normalizeNonNegativeInteger(totalExp);
+
+  let level = 1;
+
+  while (
+    level < 1000 &&
+    exp >= getExpRequiredForLevel(level + 1)
+  ) {
+    level += 1;
+  }
+
+  return level;
+}
+
+/**
+ * 現在の経験値と次のレベルまでの進捗を取得します。
+ */
+export function getLevelProgress(totalExp) {
+  const exp = normalizeNonNegativeInteger(totalExp);
+  const level = getLevelForExp(exp);
+
+  const currentLevelExp = getExpRequiredForLevel(level);
+  const nextLevelExp = getExpRequiredForLevel(level + 1);
+
+  const requiredForNext = nextLevelExp - currentLevelExp;
+  const earnedInLevel = exp - currentLevelExp;
+
+  return {
+    level,
+    totalExp: exp,
+    currentLevelExp,
+    nextLevelExp,
+    earnedInLevel,
+    requiredForNext,
+    remainingExp: Math.max(0, nextLevelExp - exp),
+    percentage: requiredForNext > 0
+      ? Math.min(
+          100,
+          Math.floor(earnedInLevel / requiredForNext * 100)
+        )
+      : 100
+  };
+}
+
+// --------------------------------------------------
+// 学習時間と経験値
+// --------------------------------------------------
+
+/**
+ * 経験値の基本ルール:
+ * 学習1分につき1 EXP。
+ *
+ * 端数は学習記録ごとに切り捨てず、
+ * 累計秒数から計算するため、短時間学習も無駄になりません。
+ */
+export function getExpForStudySeconds(seconds) {
+  return Math.floor(
+    normalizeNonNegativeInteger(seconds) / 60
+  );
+}
+
+/**
+ * 現在のロケット状態を取得します。
+ */
+export function getRocketState() {
+  return readState();
+}
+
+/**
+ * ロケットの進捗状況をまとめて取得します。
+ */
+export function getRocketSummary() {
+  const state = readState();
+  const levelProgress = getLevelProgress(state.totalExp);
+
+  return {
+    ...state,
+    levelProgress,
+
+    availableDevelopmentPoints: Math.max(
+      0,
+      state.developmentPoints -
+      state.spentDevelopmentPoints
+    ),
+
+    parts: {
+      ...state.parts
+    },
+
+    unlockedParts: [
+      ...state.unlockedParts
+    ]
+  };
+}
+
+/**
+ * 学習時間をロケットに反映します。
+ *
+ * recordId:
+ * 学習記録の一意なID。
+ *
+ * 同じrecordIdで複数回呼び出しても、
+ * 経験値を二重付与しません。
+ *
+ * 戻り値:
+ * { success, addedExp, levelBefore, levelAfter }
+ */
+export function rewardStudyRecord({
+  recordId,
+  seconds
+} = {}) {
+  const id = String(recordId ?? "").trim();
+
+  if (!id) {
+    return {
+      error: "学習記録のIDが必要です。"
+    };
+  }
+
+  const duration = normalizeNonNegativeInteger(seconds);
+
+  if (duration <= 0) {
+    return {
+      error: "学習時間が正しくありません。"
+    };
+  }
+
+  const state = readState();
+
+  if (state.rewardedRecordIds.includes(id)) {
+    return {
+      success: false,
+      duplicate: true,
+      addedExp: 0,
+      message: "この学習記録には報酬が付与済みです。"
+    };
+  }
+
+  const levelBefore = state.level;
+
+  const oldWholeMinutes = Math.floor(
+    state.totalStudySeconds / 60
+  );
+
+  state.totalStudySeconds += duration;
+
+  const newWholeMinutes = Math.floor(
+    state.totalStudySeconds / 60
+  );
+
+  const addedExp = newWholeMinutes - oldWholeMinutes;
+
+  state.totalExp += addedExp;
+  state.developmentPoints += addedExp;
+
+  state.rewardedRecordIds.push(id);
+  state.level = getLevelForExp(state.totalExp);
+
+  writeState(state);
+
+  const result = {
+    success: true,
+    duplicate: false,
+    addedExp,
+    levelBefore,
+    levelAfter: state.level,
+    leveledUp: state.level > levelBefore,
+    totalExp: state.totalExp,
+    developmentPoints: state.developmentPoints,
+    totalStudySeconds: state.totalStudySeconds
+  };
+
+  notifyRocketChange("study-reward", result);
+
+  if (result.leveledUp) {
+    notifyRocketChange("level-up", {
+      levelBefore,
+      levelAfter: state.level
+    });
+  }
+
+  return result;
+}
+
+// --------------------------------------------------
+// 既存の学習記録との同期
+// --------------------------------------------------
+
+/**
+ * 未報酬の学習記録をロケットに反映します。
+ *
+ * 注意:
+ * 記録IDがない学習記録は自動付与しません。
+ * 既存データの誤った二重加算を避けるためです。
+ */
+export function syncStudyRewards() {
+  const studyData = loadStudyData();
+
+  const records = Array.isArray(studyData.records)
+    ? studyData.records
+    : [];
+
+  const state = readState();
+
+  let rewardedCount = 0;
+  let addedExp = 0;
+
+  for (const record of records) {
+    if (
+      !record ||
+      typeof record.id !== "string" ||
+      state.rewardedRecordIds.includes(record.id)
+    ) {
+      continue;
+    }
+
+    const seconds = normalizeNonNegativeInteger(
+      record.seconds
+    );
+
+    if (seconds <= 0) {
+      continue;
+    }
+
+    const oldWholeMinutes = Math.floor(
+      state.totalStudySeconds / 60
+    );
+
+    state.totalStudySeconds += seconds;
+
+    const newWholeMinutes = Math.floor(
+      state.totalStudySeconds / 60
+    );
+
+    const exp = newWholeMinutes - oldWholeMinutes;
+
+    state.totalExp += exp;
+    state.developmentPoints += exp;
+
+    addedExp += exp;
+    rewardedCount += 1;
+
+    state.rewardedRecordIds.push(record.id);
+  }
+
+  if (rewardedCount > 0) {
+    const previousLevel = state.level;
+
+    state.level = getLevelForExp(state.totalExp);
+    writeState(state);
+
+    notifyRocketChange("sync", {
+      rewardedCount,
+      addedExp,
+      levelBefore: previousLevel,
+      levelAfter: state.level
+    });
+  }
+
+  return {
+    success: true,
+    rewardedCount,
+    addedExp,
+    totalExp: state.totalExp,
+    level: getLevelForExp(state.totalExp)
+  };
+}
+
+// --------------------------------------------------
+// ロケット部品
+// --------------------------------------------------
+
+const PARTS = {
+  body: {
+    name: "ロケット本体",
+    cost: 0,
+    maxLevel: 10,
+    unlockAtLevel: 1
+  },
+
+  engine: {
+    name: "エンジン",
+    cost: 50,
+    maxLevel: 10,
+    unlockAtLevel: 2
+  },
+
+  fuelTank: {
+    name: "燃料タンク",
+    cost: 40,
+    maxLevel: 10,
+    unlockAtLevel: 2
+  },
+
+  noseCone: {
+    name: "ノーズコーン",
+    cost: 30,
+    maxLevel: 10,
+    unlockAtLevel: 3
+  }
+};
+
+/**
+ * 部品の一覧を取得します。
+ */
+export function getRocketParts() {
+  const state = readState();
+
+  return Object.entries(PARTS).map(([id, config]) => ({
+    id,
+    name: config.name,
+    level: state.parts[id] ?? 0,
+    maxLevel: config.maxLevel,
+    cost: config.cost,
+    unlocked: state.unlockedParts.includes(id),
+    unlockAtLevel: config.unlockAtLevel
+  }));
+}
+
+/**
+ * レベル条件を満たした部品を解放します。
+ */
+export function unlockAvailableParts() {
+  const state = readState();
+  const newlyUnlocked = [];
+
+  for (const [id, config] of Object.entries(PARTS)) {
+    if (
+      state.level >= config.unlockAtLevel &&
+      !state.unlockedParts.includes(id)
+    ) {
+      state.unlockedParts.push(id);
+      newlyUnlocked.push(id);
+    }
+  }
+
+  if (newlyUnlocked.length > 0) {
+    writeState(state);
+
+    notifyRocketChange("parts-unlocked", {
+      parts: newlyUnlocked
+    });
+  }
+
+  return {
+    newlyUnlocked,
+    parts: getRocketParts()
+  };
+}
+
+/**
+ * 部品を1段階強化します。
+ *
+ * 初期設定:
+ * - 本体: 10ポイント
+ * - エンジン: 50ポイント
+ * - 燃料タンク: 40ポイント
+ * - ノーズコーン: 30ポイント
+ *
+ * 強化するたびに必要ポイントが増えます。
+ */
+export function upgradeRocketPart(partId) {
+  const id = String(partId ?? "");
+  const config = PARTS[id];
+
+  if (!config) {
+    return {
+      error: "指定された部品がありません。"
+    };
+  }
+
+  const state = readState();
+
+  if (!state.unlockedParts.includes(id)) {
+    return {
+      error: "この部品はまだ解放されていません。"
+    };
+  }
+
+  const currentLevel = state.parts[id] ?? 0;
+
+  if (currentLevel >= config.maxLevel) {
+    return {
+      error: "この部品は最大レベルです。"
+    };
+  }
+
+  const baseCost = id === "body"
+    ? 10
+    : config.cost;
+
+  const cost = baseCost * (currentLevel + 1);
+
+  const available =
+    state.developmentPoints -
+    state.spentDevelopmentPoints;
+
+  if (available < cost) {
+    return {
+      error: "開発ポイントが足りません。",
+      required: cost,
+      available
+    };
+  }
+
+  state.parts[id] = currentLevel + 1;
+  state.spentDevelopmentPoints += cost;
+
+  writeState(state);
+
+  const result = {
+    success: true,
+    partId: id,
+    partName: config.name,
+    previousLevel: currentLevel,
+    level: state.parts[id],
+    cost,
+    availableDevelopmentPoints:
+      state.developmentPoints -
+      state.spentDevelopmentPoints
+  };
+
+  notifyRocketChange("part-upgraded", result);
+
+  return result;
+}
+
+// --------------------------------------------------
+// 初期化
+// --------------------------------------------------
+
+/**
+ * 初期化時にレベルと部品解放を更新します。
+ * 既存の学習報酬は自動で同期しません。
+ * 同期が必要な場合は、呼び出し元が
+ * syncStudyRewards() を明示的に呼びます。
+ */
+export function initializeRocket() {
+  const state = readState();
+
+  state.level = getLevelForExp(state.totalExp);
+
+  writeState(state);
+
+  const unlocked = unlockAvailableParts();
+
+  return {
+    success: true,
+    summary: getRocketSummary(),
+    newlyUnlocked: unlocked.newlyUnlocked
+  };
 }
