@@ -1,139 +1,246 @@
 
+// =========================================================
+// ONE FOR ALL COSMOS
+// js/navigation.js
+// 画面遷移・下部メニュー管理
+// =========================================================
+
 "use strict";
 
-/*
- * ONE FOR ALL — COSMOS
- * js/navigation.js
- *
- * 画面切り替えシステム
- *
- * 対応画面:
- * home         ホーム
- * calendar     カレンダー・予定
- * study        学習記録
- * statistics   統計・グラフ
- * goals        目標マップ
- * rocket       ロケット・経済
- */
-
-const COSMOS_VIEWS = Object.freeze([
+export const COSMOS_VIEWS = [
   "home",
   "calendar",
   "study",
   "statistics",
   "goals",
-  "rocket"
-]);
+  "rocket",
+  "economy",
+  "countdown",
+  "notifications",
+  "settings"
+];
 
-/**
- * 指定した画面を表示します。
- */
-export function showView(name) {
-  const viewName = COSMOS_VIEWS.includes(name)
-    ? name
-    : "home";
+const VIEW_TITLES = {
+  home: "ホーム",
+  calendar: "カレンダー",
+  study: "学習記録",
+  statistics: "学習統計",
+  goals: "目標マップ",
+  rocket: "ロケット",
+  economy: "経済",
+  countdown: "カウントダウン",
+  notifications: "通知",
+  settings: "設定"
+};
 
-  const sections = document.querySelectorAll(
-    "main > section[id^='view-']"
+const $ = (selector, root = document) =>
+  root.querySelector(selector);
+
+const $$ = (selector, root = document) =>
+  Array.from(root.querySelectorAll(selector));
+
+let initialized = false;
+
+/* ---------------------------------------------------------
+   画面一覧を取得
+   --------------------------------------------------------- */
+
+export function getAvailableViews() {
+  return COSMOS_VIEWS.filter((name) =>
+    document.getElementById(`view-${name}`)
   );
+}
 
-  sections.forEach(section => {
-    const active = section.id === `view-${viewName}`;
+/* ---------------------------------------------------------
+   画面タイトルを取得
+   --------------------------------------------------------- */
+
+export function getViewTitle(name) {
+  return VIEW_TITLES[name] || name;
+}
+
+/* ---------------------------------------------------------
+   下部メニューの選択状態を更新
+   --------------------------------------------------------- */
+
+function updateNavigationState(name) {
+  $$("[data-view]").forEach((element) => {
+    const active = element.dataset.view === name;
+
+    element.classList.toggle("active", active);
+
+    if (active) {
+      element.setAttribute("aria-current", "page");
+    } else {
+      element.removeAttribute("aria-current");
+    }
+  });
+}
+
+/* ---------------------------------------------------------
+   画面を切り替える
+   --------------------------------------------------------- */
+
+export function showView(name) {
+  if (!COSMOS_VIEWS.includes(name)) {
+    console.warn(
+      `[COSMOS] 未登録の画面です: ${name}`
+    );
+
+    return false;
+  }
+
+  const target = document.getElementById(`view-${name}`);
+
+  if (!target) {
+    console.warn(
+      `[COSMOS] 画面要素が見つかりません: #view-${name}`
+    );
+
+    return false;
+  }
+
+  const sections = $$("main > section[id^='view-']");
+
+  sections.forEach((section) => {
+    const active = section === target;
 
     section.hidden = !active;
     section.classList.toggle("active", active);
-    section.setAttribute("aria-hidden", String(!active));
+    section.setAttribute(
+      "aria-hidden",
+      active ? "false" : "true"
+    );
   });
 
-  document.querySelectorAll("[data-view]").forEach(button => {
-    const active = button.dataset.view === viewName;
+  updateNavigationState(name);
 
-    button.classList.toggle("active", active);
+  document.body.dataset.currentView = name;
 
-    if (active) {
-      button.setAttribute("aria-current", "page");
-    } else {
-      button.removeAttribute("aria-current");
-    }
-  });
+  document.title =
+    `${getViewTitle(name)} | One for All COSMOS`;
+
+  document.dispatchEvent(
+    new CustomEvent("cosmos:viewchange", {
+      detail: {
+        view: name,
+        title: getViewTitle(name)
+      }
+    })
+  );
+
+  return true;
+}
+
+/* ---------------------------------------------------------
+   data-view のクリック処理
+   --------------------------------------------------------- */
+
+function handleViewClick(event) {
+  const element = event.target.closest("[data-view]");
+
+  if (!element) {
+    return;
+  }
+
+  const name = element.dataset.view;
+
+  if (!COSMOS_VIEWS.includes(name)) {
+    return;
+  }
+
+  event.preventDefault();
+  showView(name);
 
   window.scrollTo({
     top: 0,
     behavior: "auto"
   });
-
-  // 他の機能ファイルが登録した画面更新処理を呼び出します。
-  document.dispatchEvent(
-    new CustomEvent("cosmos:viewchange", {
-      detail: { view: viewName }
-    })
-  );
-
-  return viewName;
 }
 
-/**
- * 画面切り替えボタンを登録します。
- */
-export function initNavigation() {
-  if (document.documentElement.dataset.cosmosNavigationReady === "true") {
+/* ---------------------------------------------------------
+   戻る操作
+   --------------------------------------------------------- */
+
+function handleBackClick(event) {
+  const button = event.target.closest("[data-back]");
+
+  if (!button) {
     return;
   }
 
-  document.documentElement.dataset.cosmosNavigationReady = "true";
+  event.preventDefault();
 
-  document.addEventListener("click", event => {
-    if (!(event.target instanceof Element)) {
-      return;
-    }
+  const destination = button.dataset.back || "home";
 
-    const button = event.target.closest("[data-view]");
-
-    if (!button) {
-      return;
-    }
-
-    event.preventDefault();
-    showView(button.dataset.view);
-  });
-
-  document.addEventListener("click", event => {
-    if (!(event.target instanceof Element)) {
-      return;
-    }
-
-    const button = event.target.closest("[data-close]");
-
-    if (!button) {
-      return;
-    }
-
-    const dialog = document.getElementById(button.dataset.close);
-
-    if (!dialog) {
-      return;
-    }
-
-    if (dialog instanceof HTMLDialogElement) {
-      if (dialog.open) {
-        dialog.close();
-      }
-    } else {
-      dialog.hidden = true;
-    }
-  });
-
-  document.querySelectorAll(".app-dialog").forEach(dialog => {
-    if (!(dialog instanceof HTMLDialogElement)) {
-      return;
-    }
-
-    dialog.addEventListener("click", event => {
-      if (event.target === dialog) {
-        dialog.close();
-      }
-    });
-  });
+  if (COSMOS_VIEWS.includes(destination)) {
+    showView(destination);
+  }
 }
 
-export { COSMOS_VIEWS };
+/* ---------------------------------------------------------
+   初期画面を決定
+   --------------------------------------------------------- */
+
+export function initializeNavigation() {
+  const active = $("main > section.active[id^='view-']");
+
+  if (active) {
+    const name = active.id.replace("view-", "");
+
+    if (
+      COSMOS_VIEWS.includes(name) &&
+      document.getElementById(`view-${name}`)
+    ) {
+      return showView(name);
+    }
+  }
+
+  return showView("home");
+}
+
+/* ---------------------------------------------------------
+   ナビゲーションを初期化
+   --------------------------------------------------------- */
+
+export function initNavigation() {
+  if (initialized) {
+    return;
+  }
+
+  initialized = true;
+
+  document.addEventListener(
+    "click",
+    handleViewClick
+  );
+
+  document.addEventListener(
+    "click",
+    handleBackClick
+  );
+
+  initializeNavigation();
+}
+
+/* ---------------------------------------------------------
+   ナビゲーションを解除
+   --------------------------------------------------------- */
+
+export function destroyNavigation() {
+  if (!initialized) {
+    return;
+  }
+
+  document.removeEventListener(
+    "click",
+    handleViewClick
+  );
+
+  document.removeEventListener(
+    "click",
+    handleBackClick
+  );
+
+  initialized = false;
+}
