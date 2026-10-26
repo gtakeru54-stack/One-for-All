@@ -110,12 +110,14 @@
     return d;
   };
 
-  // app.js と同じ保存先から予定・タスクを読み込む
-let calendarEvents = read(STORAGE.events, []);
-let calendarTasks = read(STORAGE.tasks, []);
+  const calendar = read(STORAGE.calendar, {
+    events: [],
+    tasks: []
+  });
 
-if (!Array.isArray(calendarEvents)) calendarEvents = [];
-if (!Array.isArray(calendarTasks)) calendarTasks = [];
+  if (!Array.isArray(calendar.events)) calendar.events = [];
+  if (!Array.isArray(calendar.tasks)) calendar.tasks = [];
+
   const study = read(STORAGE.study, {
     subjects: [],
     items: [],
@@ -131,9 +133,13 @@ if (!Array.isArray(calendarTasks)) calendarTasks = [];
   let selectedDate = dateKey(new Date());
   let activeTab = "weekly";
 
-  const persistCalendar = () => save(STORAGE.calendar, calendar);
-  const persistPlans = () => save(STORAGE.weekly, plans);
+  const persistCalendar = () => {
+  const eventsSaved = save(STORAGE.events, calendarEvents);
+  const tasksSaved = save(STORAGE.tasks, calendarTasks);
+  return eventsSaved && tasksSaved;
+};
 
+const persistPlans = () => save(STORAGE.weekly, plans);
   function injectStyles() {
     if ($("#weekly-timetable-style")) return;
 
