@@ -403,7 +403,7 @@
     const homeRecords = $("#home-records");
     if (homeRecords) {
       const recent = [...study.records]
-        ..sort((a, b) => {
+        .sort((a, b) => {
   const dateA = String(a.createdAt || "");
   const dateB = String(b.createdAt || "");
   return dateB.localeCompare(dateA);
@@ -1170,10 +1170,11 @@
 
     const history = $("#period-records");
     if (history) {
-      const recent = [...records]..sort((a, b) => {
+      const recent = [...records].sort((a, b) => {
   const dateA = String(a.createdAt || "");
   const dateB = String(b.createdAt || "");
   return dateB.localeCompare(dateA);
+});
 });
 
       history.innerHTML = recent.length ? recent.map(record => `
