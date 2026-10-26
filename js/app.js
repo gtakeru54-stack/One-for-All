@@ -403,7 +403,11 @@
     const homeRecords = $("#home-records");
     if (homeRecords) {
       const recent = [...study.records]
-        .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""))
+        ..sort((a, b) => {
+  const dateA = String(a.createdAt || "");
+  const dateB = String(b.createdAt || "");
+  return dateB.localeCompare(dateA);
+})
         .slice(0, 5);
 
       homeRecords.innerHTML = recent.length ? recent.map(record => `
