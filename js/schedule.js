@@ -11,10 +11,11 @@
   const $ = (s, root = document) => root.querySelector(s);
 
   const STORAGE = {
-    calendar: "personal-calendar-v1",
-    study: "oneforall-study-v1",
-    weekly: "oneforall-weekly-plan-v1"
-  };
+  events: "oneforall-events-v1",
+  tasks: "oneforall-tasks-v1",
+  study: "oneforall-study-v1",
+  weekly: "oneforall-weekly-plan-v1"
+};
 
   const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"];
   const START_MINUTE = 6 * 60;
