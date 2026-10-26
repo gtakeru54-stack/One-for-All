@@ -2518,3 +2518,71 @@ animation-iteration-count: 1 !important;
 transition-duration: 0.01ms !important;
 }
 }
+/* =========================================================
+COSMOS — Calendar and schedule improvements
+========================================================= */
+
+.calendar-grid {
+grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.calendar-grid > * {
+min-width: 0;
+box-sizing: border-box;
+}
+
+.calendar-grid > .muted.center.small {
+display: flex;
+justify-content: center;
+align-items: center;
+text-align: center;
+padding: 8px 0;
+}
+
+.day-cell {
+position: relative;
+overflow: hidden;
+min-width: 0;
+}
+
+.day-number {
+display: block;
+text-align: center;
+}
+
+.day-markers {
+display: flex;
+justify-content: center;
+align-items: center;
+gap: 4px;
+flex-wrap: wrap;
+}
+
+.event-card {
+overflow-wrap: anywhere;
+}
+
+.event-card h3 {
+margin-bottom: 5px;
+}
+
+.task-row,
+.event-card {
+min-width: 0;
+box-sizing: border-box;
+}
+
+.cosmos-schedule-panel {
+scroll-margin-top: 12px;
+}
+
+@media (max-width: 380px) {
+.calendar-grid {
+gap: 2px;
+}
+
+.day-cell {
+padding-left: 2px;
+padding-right: 2px;
+}
+}
