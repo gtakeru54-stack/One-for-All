@@ -1583,6 +1583,7 @@
     }
   }
 
+  
   // --------------------------------------------------
   // 起動
   // --------------------------------------------------
@@ -1597,7 +1598,9 @@
       initGoals();
       initRocket();
 
-      if ($("#today-chip")) $("#today-chip").textContent = formatDate(todayKey());
+      if ($("#today-chip")) {
+        $("#today-chip").textContent = formatDate(todayKey());
+      }
 
       renderHome();
       renderStudy();
@@ -1613,27 +1616,26 @@
       });
 
       console.info("ONE FOR ALL — COSMOS 起動完了");
-    } 
-} catch (error) {
-  console.error("COSMOSの起動中にエラーが発生しました:", error);
 
-  const message = error instanceof Error
-    ? `${error.name}: ${error.message}`
-    : String(error);
+    } catch (error) {
+      console.error("COSMOSの起動中にエラーが発生しました:", error);
 
-  const toast = document.querySelector("#toast");
+      const message = error instanceof Error
+        ? `${error.name}: ${error.message}`
+        : String(error);
 
-  if (toast) {
-    toast.textContent = `起動エラー：${message}`;
-    toast.classList.add("visible");
-    toast.style.whiteSpace = "normal";
-    toast.style.overflowWrap = "anywhere";
-    toast.style.zIndex = "99999";
-  } else {
-    alert(`起動エラー：${message}`);
-  }
-}
+      const toast = document.querySelector("#toast");
 
+      if (toast) {
+        toast.textContent = `起動エラー：${message}`;
+        toast.classList.add("visible");
+        toast.style.whiteSpace = "normal";
+        toast.style.overflowWrap = "anywhere";
+        toast.style.zIndex = "99999";
+      } else {
+        alert(`起動エラー：${message}`);
+      }
+    }
   }
 
   if (document.readyState === "loading") {
@@ -1641,4 +1643,4 @@
   } else {
     initialize();
   }
-})(); 
+})();
