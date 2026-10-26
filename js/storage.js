@@ -6,41 +6,44 @@
  * js/storage.js
  *
  * 共通データ保存システム
- * すべての機能で共通して使用する。
+ * 学習・予定・タスク・目標・経済などの
+ * データを localStorage に保存します。
+ *
+ * 他のJavaScriptファイルから import して使用します。
  */
 
-const STORAGE_PREFIX = "oneforall-";
+const STORAGE_KEYS = Object.freeze({
+  study: "oneforall-study-v1",
+  events: "oneforall-events-v1",
+  tasks: "oneforall-tasks-v1",
+  goals: "oneforall-goals-v1",
+  finance: "oneforall-finance-v1",
+  target: "oneforall-target-v1",
+  dailyGoal: "oneforall-daily-study-goal",
 
-export const STORAGE_KEYS = Object.freeze({
-  study: `${STORAGE_PREFIX}study-v1`,
-  events: `${STORAGE_PREFIX}events-v1`,
-  tasks: `${STORAGE_PREFIX}tasks-v1`,
-  goals: `${STORAGE_PREFIX}goals-v1`,
-  finance: `${STORAGE_PREFIX}finance-v1`,
-  target: `${STORAGE_PREFIX}target-v1`,
-  dailyGoal: `${STORAGE_PREFIX}daily-study-goal`,
-  settings: `${STORAGE_PREFIX}settings-v1`,
-  rocket: `${STORAGE_PREFIX}rocket-v1`,
-  missions: `${STORAGE_PREFIX}missions-v1`
+  // 今後追加する成長・ロケット関連データ
+  progression: "oneforall-progression-v1",
+  habits: "oneforall-habits-v1",
+  missions: "oneforall-missions-v1"
 });
 
 /**
- * データを読み込む。
- * 保存データがない、または読み込みに失敗した場合は
- * 指定された初期値を返す。
+ * データを読み込みます。
+ * 保存データがない場合や読み込みに失敗した場合は
+ * fallback を返します。
  */
-export function readStorage(key, fallback = null) {
+export function loadData(key, fallback = null) {
   try {
-    const value = localStorage.getItem(key);
+    const raw = localStorage.getItem(key);
 
-    if (value === null) {
+    if (raw === null) {
       return fallback;
     }
 
-    return JSON.parse(value);
+    return JSON.parse(raw);
   } catch (error) {
     console.error(
-      `[COSMOS] データ読み込みエラー: ${key}`,
+      `[COSMOS] データの読み込みに失敗しました: ${key}`,
       error
     );
 
@@ -49,28 +52,19 @@ export function readStorage(key, fallback = null) {
 }
 
 /**
- * データを保存する。
- * 成功した場合は true、失敗した場合は false を返す。
- *
- * 保存に成功した場合、同じ画面内の別機能にも
- * 更新を知らせるイベントを発生させる。
+ * データを保存します。
+ * 成功した場合は true、失敗した場合は false を返します。
  */
-export function writeStorage(key, value) {
+export function saveData(key, value) {
   try {
     const serialized = JSON.stringify(value);
 
     localStorage.setItem(key, serialized);
 
-    window.dispatchEvent(
-      new CustomEvent("cosmos:data-updated", {
-        detail: { key }
-      })
-    );
-
     return true;
   } catch (error) {
     console.error(
-      `[COSMOS] データ保存エラー: ${key}`,
+      `[COSMOS] データの保存に失敗しました: ${key}`,
       error
     );
 
@@ -79,23 +73,16 @@ export function writeStorage(key, value) {
 }
 
 /**
- * データを削除する。
- * 通常の機能では使わず、必要な場合のみ使用する。
+ * 指定した保存データを削除します。
+ * 呼び出し元が明示的に指定したキーだけを削除します。
  */
-export function removeStorage(key) {
+export function removeData(key) {
   try {
     localStorage.removeItem(key);
-
-    window.dispatchEvent(
-      new CustomEvent("cosmos:data-updated", {
-        detail: { key }
-      })
-    );
-
     return true;
   } catch (error) {
     console.error(
-      `[COSMOS] データ削除エラー: ${key}`,
+      `[COSMOS] データの削除に失敗しました: ${key}`,
       error
     );
 
@@ -104,18 +91,37 @@ export function removeStorage(key) {
 }
 
 /**
- * 配列形式のデータを安全に読み込む。
+ * 保存データが存在するか確認します。
  */
-export function readStorageArray(key) {
-  const value = readStorage(key, []);
-  return Array.isArray(value) ? value : [];
+export function hasData(key) {
+  try {
+    return localStorage.getItem(key) !== null;
+  } catch (error) {
+    console.error(
+      `[COSMOS] データの確認に失敗しました: ${key}`,
+      error
+    );
+
+    return false;
+  }
 }
 
 /**
- * オブジェクト形式のデータを安全に読み込む。
+ * 配列データを読み込みます。
+ * 配列以外の値が保存されていた場合は fallback を返します。
  */
-export function readStorageObject(key, fallback = {}) {
-  const value = readStorage(key, fallback);
+export function loadArray(key, fallback = []) {
+  const value = loadData(key, fallback);
+
+  return Array.isArray(value) ? value : fallback;
+}
+
+/**
+ * オブジェクトデータを読み込みます。
+ * null や配列は通常のオブジェクトとして扱いません。
+ */
+export function loadObject(key, fallback = {}) {
+  const value = loadData(key, fallback);
 
   if (
     value === null ||
@@ -129,21 +135,73 @@ export function readStorageObject(key, fallback = {}) {
 }
 
 /**
- * 保存データの更新を監視する。
- * 戻り値の関数を呼ぶと監視を解除できる。
+ * 新しい一意のIDを生成します。
  */
-export function onStorageUpdate(callback) {
-  if (typeof callback !== "function") {
-    throw new TypeError("callback は関数である必要があります。");
+export function createId() {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return crypto.randomUUID();
   }
 
-  const handler = event => {
-    callback(event.detail);
-  };
-
-  window.addEventListener("cosmos:data-updated", handler);
-
-  return () => {
-    window.removeEventListener("cosmos:data-updated", handler);
-  };
+  return (
+    Date.now().toString(36) +
+    "-" +
+    Math.random().toString(36).slice(2, 11)
+  );
 }
+
+/**
+ * 現在の日付を YYYY-MM-DD 形式で返します。
+ * 日本時間の端末で利用することを想定しています。
+ */
+export function getTodayKey() {
+  const now = new Date();
+
+  return [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0")
+  ].join("-");
+}
+
+/**
+ * Date または日付として解釈できる値を
+ * YYYY-MM-DD 形式に変換します。
+ */
+export function getDateKey(value = new Date()) {
+  const date = value instanceof Date
+    ? value
+    : new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0")
+  ].join("-");
+}
+
+/**
+ * データ保存の状態を確認するための情報を返します。
+ * 学習内容などの個人データそのものは返しません。
+ */
+export function getStorageStatus() {
+  try {
+    return {
+      available: true,
+      keyCount: Object.keys(STORAGE_KEYS).length
+    };
+  } catch (error) {
+    return {
+      available: false,
+      keyCount: 0
+    };
+  }
+}
+
+export { STORAGE_KEYS };
