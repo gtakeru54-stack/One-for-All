@@ -1166,9 +1166,11 @@
 
     const history = $("#period-records");
     if (history) {
-      const recent = [...records].sort((a, b) =>
-        (b.createdAt || "").localeCompare(a.createdAt || "")
-      );
+      const recent = [...records]..sort((a, b) => {
+  const dateA = String(a.createdAt || "");
+  const dateB = String(b.createdAt || "");
+  return dateB.localeCompare(dateA);
+});
 
       history.innerHTML = recent.length ? recent.map(record => `
         <article class="subject-card panel">
