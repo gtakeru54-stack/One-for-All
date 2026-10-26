@@ -565,8 +565,8 @@ const persistPlans = () => save(STORAGE.weekly, plans);
   }
 
   function eventsDay(date) {
-    return calendar.events.filter(event => event.date === date);
-  }
+  return calendarEvents.filter(event => event.date === date);
+}
 
   function makeTimeline() {
     const wrapper = $("#weekly-timetable");
@@ -770,9 +770,9 @@ const persistPlans = () => save(STORAGE.weekly, plans);
 
     wrapper.querySelectorAll("[data-open-calendar-event]").forEach(button => {
       button.addEventListener("click", () => {
-        const event = calendar.events.find(item =>
-          String(item.id || "") === button.dataset.openCalendarEvent
-        );
+        const event = calendarEvents.find(item =>
+  String(item.id || "") === button.dataset.openCalendarEvent
+);
 
         if (event) {
           const dialog = $("#event-dialog");
@@ -1003,9 +1003,9 @@ const persistPlans = () => save(STORAGE.weekly, plans);
 
     // 学習計画をタスクにも反映。計画IDで重複を防ぐ。
     const taskId = `weekly-${plan.id}`;
-    const task = calendar.tasks.find(t =>
-      t.weeklyPlanId === plan.id || t.id === taskId
-    );
+    const task = calendarTasks.find(t =>
+  t.weeklyPlanId === plan.id || t.id === taskId
+);
 
     const taskData = {
       id: task?.id || taskId,
@@ -1013,12 +1013,15 @@ const persistPlans = () => save(STORAGE.weekly, plans);
       title: `学習：${plan.title}`,
       date: plan.date,
       notes: `${plan.start}〜${plan.end}${plan.notes ? " / " + plan.notes : ""}`,
-      completed: Boolean(task?.completed),
-      createdAt: task?.createdAt || Date.now()
-    };
+      done: Boolean(task?.done),
+createdAt: task?.createdAt || Date.now()
+};
 
-    if (task) Object.assign(task, taskData);
-    else calendar.tasks.push(taskData);
+if (task) {
+  Object.assign(task, taskData);
+} else {
+  calendarTasks.push(taskData);
+}
 
     persistPlans();
     persistCalendar();
@@ -1041,10 +1044,10 @@ const persistPlans = () => save(STORAGE.weekly, plans);
     if (!confirm(`「${plan.title}」の学習計画を削除しますか？`)) return;
 
     plans = plans.filter(item => item.id !== plan.id);
-    calendar.tasks = calendar.tasks.filter(task =>
-      task.weeklyPlanId !== plan.id &&
-      task.id !== `weekly-${plan.id}`
-    );
+    calendarTasks = calendarTasks.filter(task =>
+  task.weeklyPlanId !== plan.id &&
+  task.id !== `weekly-${plan.id}`
+);
 
     persistPlans();
     persistCalendar();
@@ -1218,23 +1221,51 @@ const persistPlans = () => save(STORAGE.weekly, plans);
 
     // 学習記録が別タブで更新された場合にも再描画
     window.addEventListener("storage", event => {
-      if ([STORAGE.study, STORAGE.calendar, STORAGE.weekly].includes(event.key)) {
-        const updatedStudy = read(STORAGE.study, study);
-        study.records = Array.isArray(updatedStudy.records)
-          ? updatedStudy.records
-          : study.records;
+  if (
+    ![
+      STORAGE.study,
+      STORAGE.events,
+      STORAGE.tasks,
+      STORAGE.weekly
+    ].includes(event.key)
+  ) {
+    return;
+  }
 
-        const updatedCalendar = read(STORAGE.calendar, calendar);
-        calendar.events = Array.isArray(updatedCalendar.events)
-          ? updatedCalendar.events
-          : calendar.events;
+  if (event.key === STORAGE.study) {
+    const updatedStudy = read(STORAGE.study, study);
 
-        const updatedPlans = read(STORAGE.weekly, plans);
-        if (Array.isArray(updatedPlans)) plans = updatedPlans;
+    if (Array.isArray(updatedStudy.records)) {
+      study.records = updatedStudy.records;
+    }
+  }
 
-        renderWeekly();
-      }
-    });
+  if (event.key === STORAGE.events) {
+    const updatedEvents = read(STORAGE.events, []);
+
+    calendarEvents = Array.isArray(updatedEvents)
+      ? updatedEvents
+      : [];
+  }
+
+  if (event.key === STORAGE.tasks) {
+    const updatedTasks = read(STORAGE.tasks, []);
+
+    calendarTasks = Array.isArray(updatedTasks)
+      ? updatedTasks
+      : [];
+  }
+
+  if (event.key === STORAGE.weekly) {
+    const updatedPlans = read(STORAGE.weekly, []);
+
+    if (Array.isArray(updatedPlans)) {
+      plans = updatedPlans;
+    }
+  }
+
+  renderWeekly();
+});
   }
 
   window.OneForAllWeeklyPlanner = {
