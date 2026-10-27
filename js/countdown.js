@@ -4,483 +4,581 @@
    js/countdown.js
 
    カウントダウン管理
-   ・受験、定期テスト、提出期限などの登録
-   ・追加、編集、削除
-   ・残り日数の計算
-   ・期限を過ぎたイベントの判定
-   ・近日中のイベントの取得
-   ・localStorageへの保存
+   ・受験 / 試験 / 大会などの予定日管理
+   ・残り日数の自動計算
+   ・追加 / 編集 / 削除
+   ・重要度 / メモ
+   ・日付順の並び替え
+   ・自動保存
    ========================================================= */
 
 "use strict";
 
-import {
-  loadArray,
-  saveData,
-  createId,
-} from "./storage.js";
+import { store } from "./store.js";
 
-const COUNTDOWN_STORAGE_KEY = "oneforall-countdowns-v1";
+const STORAGE_VERSION = 1;
 
-/* ---------------------------------------------------------
-   日付処理
-   --------------------------------------------------------- */
+/* =========================================================
+   内部ユーティリティ
+   ========================================================= */
 
-/**
- * 日付を YYYY-MM-DD 形式に統一する
- * UTC変換による日付ずれを防ぐ
- */
-function normalizeDate(dateValue) {
-  if (!dateValue) {
-    return "";
-  }
-
-  const value = String(dateValue).trim();
-
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return "";
-  }
-
-  const [year, month, day] = value.split("-").map(Number);
-  const date = new Date(year, month - 1, day);
-
+function createId() {
   if (
-    date.getFullYear() !== year ||
-    date.getMonth() !== month - 1 ||
-    date.getDate() !== day
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
   ) {
-    return "";
+    return crypto.randomUUID();
   }
 
-  return value;
+  return (
+    "countdown-" +
+    Date.now().toString(36) +
+    "-" +
+    Math.random().toString(36).slice(2, 10)
+  );
 }
 
-/**
- * 今日の日付を YYYY-MM-DD で取得する
- */
-function getLocalTodayKey() {
-  const now = new Date();
+function todayString() {
+  const date = new Date();
 
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
 }
 
-/**
- * 日付文字列を日付番号に変換する
- */
-function dateToDayNumber(dateString) {
-  const normalized = normalizeDate(dateString);
-
-  if (!normalized) {
-    return NaN;
+function isValidDateString(value) {
+  if (typeof value !== "string") {
+    return false;
   }
 
-  const [year, month, day] = normalized.split("-").map(Number);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  if (!match) {
+    return false;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  const date = new Date(year, month - 1, day);
+
+  return (
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day
+  );
+}
+
+function dateToDayNumber(dateString) {
+  if (!isValidDateString(dateString)) {
+    return null;
+  }
+
+  const [year, month, day] = dateString.split("-").map(Number);
 
   return Math.floor(
     Date.UTC(year, month - 1, day) / 86400000
   );
 }
 
-/**
- * 目標日までの日数を計算する
- *
- * 正の値：目標日までの日数
- * 0：目標日当日
- * 負の値：目標日を過ぎた日数
- */
-export function getDaysRemaining(targetDate, referenceDate = getLocalTodayKey()) {
-  const targetNumber = dateToDayNumber(targetDate);
-  const referenceNumber = dateToDayNumber(referenceDate);
+function getDaysRemaining(targetDate) {
+  const target = dateToDayNumber(targetDate);
+  const today = dateToDayNumber(todayString());
 
-  if (
-    !Number.isFinite(targetNumber) ||
-    !Number.isFinite(referenceNumber)
-  ) {
+  if (target === null || today === null) {
     return null;
   }
 
-  return targetNumber - referenceNumber;
+  return target - today;
 }
 
-/* ---------------------------------------------------------
-   データ取得・保存
-   --------------------------------------------------------- */
-
-/**
- * カウントダウン一覧を取得する
- */
-export function getCountdowns() {
-  return loadArray(COUNTDOWN_STORAGE_KEY)
-    .filter((item) => {
-      return (
-        item &&
-        typeof item.id === "string" &&
-        typeof item.title === "string" &&
-        normalizeDate(item.date)
-      );
-    })
-    .map((item) => ({
-      id: item.id,
-      title: item.title,
-      date: normalizeDate(item.date),
-      type: item.type || "その他",
-      notes: item.notes || "",
-      pinned: Boolean(item.pinned),
-      createdAt: item.createdAt || "",
-      updatedAt: item.updatedAt || "",
-    }))
-    .sort((a, b) => {
-      if (a.pinned !== b.pinned) {
-        return a.pinned ? -1 : 1;
-      }
-
-      return a.date.localeCompare(b.date);
-    });
-}
-
-/**
- * カウントダウン一覧を保存する
- */
-function saveCountdowns(countdowns) {
-  saveData(COUNTDOWN_STORAGE_KEY, countdowns);
-}
-
-/**
- * IDからカウントダウンを取得する
- */
-export function getCountdownById(id) {
-  return getCountdowns().find((item) => item.id === id) || null;
-}
-
-/* ---------------------------------------------------------
-   追加
-   --------------------------------------------------------- */
-
-/**
- * カウントダウンを追加する
- *
- * 使用例：
- * addCountdown({
- *   title: "大学受験",
- *   date: "2027-01-16",
- *   type: "受験",
- *   notes: "共通テスト",
- *   pinned: true
- * });
- */
-export function addCountdown({
-  title,
-  date,
-  type = "その他",
-  notes = "",
-  pinned = false,
-} = {}) {
-  const cleanTitle = String(title || "").trim();
-  const cleanDate = normalizeDate(date);
-
-  if (!cleanTitle) {
-    return {
-      success: false,
-      error: "イベント名を入力してください。",
-    };
-  }
-
-  if (!cleanDate) {
-    return {
-      success: false,
-      error: "正しい日付を指定してください。",
-    };
-  }
-
-  const countdowns = getCountdowns();
-  const now = new Date().toISOString();
-
-  const countdown = {
-    id: createId(),
-    title: cleanTitle,
-    date: cleanDate,
-    type: String(type || "その他").trim() || "その他",
-    notes: String(notes || "").trim(),
-    pinned: Boolean(pinned),
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  countdowns.push(countdown);
-  saveCountdowns(countdowns);
+function normalizeCountdown(item) {
+  const timestamp = Date.now();
 
   return {
-    success: true,
-    data: countdown,
+    id: String(item.id || createId()),
+    title: String(item.title || "").trim(),
+    date: String(item.date || ""),
+    category: String(item.category || "その他"),
+    importance: ["low", "normal", "high"].includes(item.importance)
+      ? item.importance
+      : "normal",
+    note: String(item.note || ""),
+    completed: Boolean(item.completed),
+    createdAt: Number(item.createdAt) || timestamp,
+    updatedAt: Number(item.updatedAt) || timestamp
   };
 }
 
-/* ---------------------------------------------------------
-   編集
-   --------------------------------------------------------- */
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
 
-/**
- * カウントダウンを編集する
- *
- * 使用例：
- * updateCountdown("イベントID", {
- *   title: "変更後のイベント名",
- *   date: "2027-02-01"
- * });
- */
-export function updateCountdown(id, changes = {}) {
-  const countdowns = getCountdowns();
-  const index = countdowns.findIndex((item) => item.id === id);
+/* =========================================================
+   保存データ
+   ========================================================= */
+
+function createDefaultData() {
+  return {
+    version: STORAGE_VERSION,
+    items: [],
+    selectedId: null,
+    lastUpdated: Date.now()
+  };
+}
+
+function loadData() {
+  let saved;
+
+  try {
+    saved = store.countdown.load(null);
+  } catch (error) {
+    console.error("[Countdown] 読み込みエラー:", error);
+    saved = null;
+  }
+
+  if (Array.isArray(saved)) {
+    return {
+      version: STORAGE_VERSION,
+      items: saved.map(normalizeCountdown),
+      selectedId: saved[0]?.id || null,
+      lastUpdated: Date.now()
+    };
+  }
+
+  if (!saved || typeof saved !== "object") {
+    return createDefaultData();
+  }
+
+  const items = Array.isArray(saved.items)
+    ? saved.items.map(normalizeCountdown)
+    : [];
+
+  return {
+    version: STORAGE_VERSION,
+    items,
+    selectedId: saved.selectedId || null,
+    lastUpdated: Number(saved.lastUpdated) || Date.now()
+  };
+}
+
+let data = loadData();
+
+function saveData() {
+  data.lastUpdated = Date.now();
+
+  try {
+    return store.countdown.save(data);
+  } catch (error) {
+    console.error("[Countdown] 保存エラー:", error);
+    return false;
+  }
+}
+
+/* =========================================================
+   一覧取得
+   ========================================================= */
+
+function getCountdowns() {
+  return clone(data.items);
+}
+
+function getCountdown(id) {
+  const item = data.items.find(entry => entry.id === id);
+
+  return item ? clone(item) : null;
+}
+
+function getSelectedCountdown() {
+  return getCountdown(data.selectedId);
+}
+
+function getSelectedId() {
+  return data.selectedId;
+}
+
+function selectCountdown(id) {
+  if (!data.items.some(item => item.id === id)) {
+    return false;
+  }
+
+  data.selectedId = id;
+
+  return saveData() !== false;
+}
+
+/* =========================================================
+   カウントダウン追加
+   ========================================================= */
+
+function addCountdown(options = {}) {
+  const title = String(options.title || "").trim();
+  const date = String(options.date || "");
+
+  if (!title) {
+    return {
+      success: false,
+      message: "予定の名前を入力してください。"
+    };
+  }
+
+  if (!isValidDateString(date)) {
+    return {
+      success: false,
+      message: "正しい日付を入力してください。"
+    };
+  }
+
+  const item = normalizeCountdown({
+    ...options,
+    id: createId(),
+    title,
+    date,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  });
+
+  data.items.push(item);
+  data.selectedId = item.id;
+
+  const saved = saveData();
+
+  return {
+    success: saved !== false,
+    message: saved === false
+      ? "追加しましたが、保存に失敗しました。"
+      : "カウントダウンを追加しました。",
+    item: clone(item)
+  };
+}
+
+/* =========================================================
+   カウントダウン編集
+   ========================================================= */
+
+function updateCountdown(id, changes = {}) {
+  const index = data.items.findIndex(item => item.id === id);
 
   if (index === -1) {
     return {
       success: false,
-      error: "イベントが見つかりません。",
+      message: "編集する予定が見つかりません。"
     };
   }
 
-  const current = countdowns[index];
+  const current = data.items[index];
 
-  const nextTitle =
-    changes.title === undefined
-      ? current.title
-      : String(changes.title || "").trim();
+  const title = changes.title === undefined
+    ? current.title
+    : String(changes.title).trim();
 
-  const nextDate =
-    changes.date === undefined
-      ? current.date
-      : normalizeDate(changes.date);
+  const date = changes.date === undefined
+    ? current.date
+    : String(changes.date);
 
-  if (!nextTitle) {
+  if (!title) {
     return {
       success: false,
-      error: "イベント名を入力してください。",
+      message: "予定の名前を入力してください。"
     };
   }
 
-  if (!nextDate) {
+  if (!isValidDateString(date)) {
     return {
       success: false,
-      error: "正しい日付を指定してください。",
+      message: "正しい日付を入力してください。"
     };
   }
 
-  countdowns[index] = {
+  const updated = normalizeCountdown({
     ...current,
-    title: nextTitle,
-    date: nextDate,
-    type:
-      changes.type === undefined
-        ? current.type
-        : String(changes.type || "その他").trim() || "その他",
-    notes:
-      changes.notes === undefined
-        ? current.notes
-        : String(changes.notes || "").trim(),
-    pinned:
-      changes.pinned === undefined
-        ? current.pinned
-        : Boolean(changes.pinned),
-    updatedAt: new Date().toISOString(),
-  };
+    ...changes,
+    id: current.id,
+    title,
+    date,
+    createdAt: current.createdAt,
+    updatedAt: Date.now()
+  });
 
-  saveCountdowns(countdowns);
+  data.items[index] = updated;
 
   return {
-    success: true,
-    data: countdowns[index],
+    success: saveData() !== false,
+    message: "カウントダウンを更新しました。",
+    item: clone(updated)
   };
 }
 
-/* ---------------------------------------------------------
+/* =========================================================
    削除
-   --------------------------------------------------------- */
+   ========================================================= */
 
-/**
- * カウントダウンを削除する
- */
-export function deleteCountdown(id) {
-  const countdowns = getCountdowns();
-  const filtered = countdowns.filter((item) => item.id !== id);
+function deleteCountdown(id) {
+  const index = data.items.findIndex(item => item.id === id);
 
-  if (filtered.length === countdowns.length) {
+  if (index === -1) {
     return {
       success: false,
-      error: "イベントが見つかりません。",
+      message: "削除する予定が見つかりません。"
     };
   }
 
-  saveCountdowns(filtered);
+  data.items.splice(index, 1);
+
+  if (data.selectedId === id) {
+    data.selectedId = data.items[0]?.id || null;
+  }
 
   return {
-    success: true,
+    success: saveData() !== false,
+    message: "カウントダウンを削除しました。"
   };
 }
 
-/* ---------------------------------------------------------
-   状態判定
-   --------------------------------------------------------- */
+/* =========================================================
+   達成状態
+   ========================================================= */
 
-/**
- * イベントの残り日数や状態を取得する
- */
-export function getCountdownStatus(
-  countdownOrId,
-  referenceDate = getLocalTodayKey()
-) {
-  const countdown =
-    typeof countdownOrId === "string"
-      ? getCountdownById(countdownOrId)
-      : countdownOrId;
+function setCompleted(id, completed = true) {
+  return updateCountdown(id, {
+    completed: Boolean(completed)
+  });
+}
 
-  if (!countdown) {
+function toggleCompleted(id) {
+  const item = data.items.find(entry => entry.id === id);
+
+  if (!item) {
+    return {
+      success: false,
+      message: "予定が見つかりません。"
+    };
+  }
+
+  return setCompleted(id, !item.completed);
+}
+
+/* =========================================================
+   残り日数・状態
+   ========================================================= */
+
+function getCountdownStatus(item) {
+  if (item.completed) {
+    return "completed";
+  }
+
+  const remaining = getDaysRemaining(item.date);
+
+  if (remaining === null) {
+    return "invalid";
+  }
+
+  if (remaining < 0) {
+    return "overdue";
+  }
+
+  if (remaining === 0) {
+    return "today";
+  }
+
+  if (remaining === 1) {
+    return "tomorrow";
+  }
+
+  return "upcoming";
+}
+
+function getCountdownDetails(id) {
+  const item = data.items.find(entry => entry.id === id);
+
+  if (!item) {
     return null;
   }
 
-  const daysRemaining = getDaysRemaining(
-    countdown.date,
-    referenceDate
-  );
+  const remainingDays = getDaysRemaining(item.date);
 
-  if (daysRemaining === null) {
-    return null;
-  }
+  let remainingText = "";
 
-  let status;
-  let label;
-
-  if (daysRemaining > 0) {
-    status = "upcoming";
-    label = `あと${daysRemaining}日`;
-  } else if (daysRemaining === 0) {
-    status = "today";
-    label = "今日";
+  if (item.completed) {
+    remainingText = "達成済み";
+  } else if (remainingDays === null) {
+    remainingText = "日付を確認してください";
+  } else if (remainingDays < 0) {
+    remainingText = `${Math.abs(remainingDays)}日経過`;
+  } else if (remainingDays === 0) {
+    remainingText = "今日";
+  } else if (remainingDays === 1) {
+    remainingText = "あと1日";
   } else {
-    status = "past";
-    label = `${Math.abs(daysRemaining)}日経過`;
+    remainingText = `あと${remainingDays}日`;
   }
 
   return {
-    id: countdown.id,
-    title: countdown.title,
-    date: countdown.date,
-    type: countdown.type,
-    notes: countdown.notes,
-    pinned: countdown.pinned,
-    daysRemaining,
-    status,
-    label,
+    ...clone(item),
+    remainingDays,
+    remainingText,
+    status: getCountdownStatus(item)
   };
 }
 
-/* ---------------------------------------------------------
-   一覧の絞り込み
-   --------------------------------------------------------- */
+function getAllCountdownDetails() {
+  return data.items.map(item => getCountdownDetails(item.id));
+}
 
-/**
- * 未来のイベントを近い順に取得する
- *
- * options.limit：取得件数
- * options.includeToday：今日のイベントを含めるか
- */
-export function getUpcomingCountdowns({
-  limit = 10,
-  includeToday = true,
-  referenceDate = getLocalTodayKey(),
-} = {}) {
+/* =========================================================
+   並び替え
+   ========================================================= */
+
+function getSortedCountdowns(options = {}) {
+  const includeCompleted = options.includeCompleted !== false;
+
+  const items = data.items
+    .filter(item => includeCompleted || !item.completed)
+    .map(item => getCountdownDetails(item.id));
+
+  items.sort((a, b) => {
+    const aDate = dateToDayNumber(a.date);
+    const bDate = dateToDayNumber(b.date);
+
+    if (aDate === null && bDate === null) {
+      return a.title.localeCompare(b.title, "ja");
+    }
+
+    if (aDate === null) return 1;
+    if (bDate === null) return -1;
+
+    return aDate - bDate;
+  });
+
+  return clone(items);
+}
+
+function getUpcomingCountdowns(limit = 5) {
   const safeLimit = Math.max(0, Math.floor(Number(limit) || 0));
 
-  return getCountdowns()
-    .map((item) => getCountdownStatus(item, referenceDate))
-    .filter((item) => {
-      if (!item) {
-        return false;
-      }
-
-      return includeToday
-        ? item.daysRemaining >= 0
-        : item.daysRemaining > 0;
-    })
-    .sort((a, b) => {
-      if (a.daysRemaining !== b.daysRemaining) {
-        return a.daysRemaining - b.daysRemaining;
-      }
-
-      if (a.pinned !== b.pinned) {
-        return a.pinned ? -1 : 1;
-      }
-
-      return a.date.localeCompare(b.date);
-    })
+  return getSortedCountdowns({ includeCompleted: false })
+    .filter(item =>
+      item.remainingDays !== null &&
+      item.remainingDays >= 0
+    )
     .slice(0, safeLimit);
 }
 
-/**
- * 期限を過ぎたイベントを取得する
- */
-export function getPastCountdowns({
-  referenceDate = getLocalTodayKey(),
-} = {}) {
-  return getCountdowns()
-    .map((item) => getCountdownStatus(item, referenceDate))
-    .filter((item) => item && item.daysRemaining < 0)
-    .sort((a, b) => b.date.localeCompare(a.date));
+function getOverdueCountdowns() {
+  return getSortedCountdowns({ includeCompleted: false })
+    .filter(item => item.status === "overdue");
 }
 
-/**
- * カウントダウン全体の概要を取得する
- */
-export function getCountdownSummary(
-  referenceDate = getLocalTodayKey()
-) {
-  const countdowns = getCountdowns();
-  const statuses = countdowns
-    .map((item) => getCountdownStatus(item, referenceDate))
-    .filter(Boolean);
+/* =========================================================
+   カテゴリー別取得
+   ========================================================= */
 
-  const today = statuses.filter(
-    (item) => item.daysRemaining === 0
+function getCategories() {
+  return [...new Set(
+    data.items.map(item => item.category).filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b, "ja"));
+}
+
+function getCountdownsByCategory(category) {
+  return getAllCountdownDetails()
+    .filter(item => item.category === category);
+}
+
+/* =========================================================
+   検索
+   ========================================================= */
+
+function searchCountdowns(query) {
+  const keyword = String(query || "").trim().toLowerCase();
+
+  if (!keyword) {
+    return getAllCountdownDetails();
+  }
+
+  return getAllCountdownDetails().filter(item =>
+    item.title.toLowerCase().includes(keyword) ||
+    item.note.toLowerCase().includes(keyword) ||
+    item.category.toLowerCase().includes(keyword)
   );
+}
 
-  const upcoming = statuses.filter(
-    (item) => item.daysRemaining > 0
-  );
+/* =========================================================
+   統計
+   ========================================================= */
 
-  const past = statuses.filter(
-    (item) => item.daysRemaining < 0
-  );
-
-  const nextEvent = [...statuses]
-    .filter((item) => item.daysRemaining >= 0)
-    .sort((a, b) => a.daysRemaining - b.daysRemaining)[0] || null;
+function getSummary() {
+  const items = getAllCountdownDetails();
 
   return {
-    total: countdowns.length,
-    todayCount: today.length,
-    upcomingCount: upcoming.length,
-    pastCount: past.length,
-    nextEvent,
-    todayEvents: today,
+    total: items.length,
+    completed: items.filter(item => item.completed).length,
+    upcoming: items.filter(item => item.status === "upcoming").length,
+    today: items.filter(item => item.status === "today").length,
+    tomorrow: items.filter(item => item.status === "tomorrow").length,
+    overdue: items.filter(item => item.status === "overdue").length
   };
 }
 
-/* ---------------------------------------------------------
-   変更通知
-   --------------------------------------------------------- */
+/* =========================================================
+   初期化・リセット
+   ========================================================= */
 
-/**
- * 画面側で更新を検知するための通知
- */
-export function notifyCountdownChange() {
-  if (typeof window === "undefined") {
-    return;
+function initializeCountdown() {
+  data = loadData();
+
+  if (!data.items.some(item => item.id === data.selectedId)) {
+    data.selectedId = data.items[0]?.id || null;
   }
 
-  window.dispatchEvent(
-    new CustomEvent("cosmos:countdown-change")
-  );
+  return getAllCountdownDetails();
 }
+
+function resetCountdowns() {
+  data = createDefaultData();
+  saveData();
+
+  return getCountdowns();
+}
+
+/* =========================================================
+   公開API
+   ========================================================= */
+
+export const countdown = Object.freeze({
+  initializeCountdown,
+
+  getCountdowns,
+  getCountdown,
+  getSelectedCountdown,
+  getSelectedId,
+  selectCountdown,
+
+  addCountdown,
+  updateCountdown,
+  deleteCountdown,
+
+  setCompleted,
+  toggleCompleted,
+
+  getDaysRemaining,
+  getCountdownStatus,
+  getCountdownDetails,
+  getAllCountdownDetails,
+
+  getSortedCountdowns,
+  getUpcomingCountdowns,
+  getOverdueCountdowns,
+
+  getCategories,
+  getCountdownsByCategory,
+  searchCountdowns,
+  getSummary,
+
+  resetCountdowns,
+  save: saveData
+});
+
+export default countdown;
