@@ -2,17 +2,33 @@
 /* =========================================================
    ONE FOR ALL — COSMOS
    js/ui.js
-   画面操作・学習記録・タイマー・設定・保存
+   画面操作・各機能の接続・表示更新
+   機能別の処理は既存のJSファイルに分散
    ========================================================= */
 
 "use strict";
 
+import { store } from "./store.js";
+import { study } from "./study.js";
+import { calendar } from "./calendar.js";
+import { statistics } from "./statistics.js";
+import { goals } from "./goals.js";
+import { countdown } from "./countdown.js";
+import { economy } from "./economy.js";
+import { rocket } from "./rocket.js";
+import {
+  getSettings,
+  saveSettings
+} from "./settings.js";
+
 (() => {
-  const $ = (selector, root = document) => root.querySelector(selector);
+  const $ = (selector, root = document) =>
+    root.querySelector(selector);
+
   const $$ = (selector, root = document) =>
     Array.from(root.querySelectorAll(selector));
 
-  const STORAGE_KEY = "ofa-cosmos-data-v1";
+  const LEGACY_KEY = "ofa-cosmos-data-v1";
 
   const DEFAULTS = {
     settings: {
@@ -61,31 +77,142 @@
     }
   };
 
-  let data = loadData();
-  let timer = {
-    running: false,
-    startedAt: 0,
-    accumulated: 0,
-    subject: "",
-    item: "",
-    interval: null
-  };
-
-  let dialogResolve = null;
+  let data = loadLegacyData();
+  let currentView = "home";
   let selectedDate = dateKey(new Date());
   let calendarMonth = new Date();
-  let currentView = "home";
+  let dialogResolve = null;
+  let timerInterval = null;
+  let timerStartedAt = 0;
+  let timerAccumulated = 0;
+  let timerRunning = false;
+
+  /* =======================================================
+     共通処理
+     ======================================================= */
 
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
   }
 
-  function loadData() {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (!saved) return clone(DEFAULTS);
+  function uid(prefix = "item") {
+    return `${prefix}-${Date.now()}-${Math.random()
+      .toString(36).slice(2, 8)}`;
+  }
 
-      const parsed = JSON.parse(saved);
+  function dateKey(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  function todayKey() {
+    return dateKey(new Date());
+  }
+
+  function parseDate(value) {
+    if (!value) return new Date();
+    const [y, m, d] = value.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  }
+
+  function escapeHTML(value) {
+    return String(value ?? "").replace(/[&<>"']/g, char => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    })[char]);
+  }
+
+  function formatMinutes(value) {
+    const minutes = Math.max(0, Math.floor(Number(value) || 0));
+    const hours = Math.floor(minutes / 60);
+    const remainder = minutes % 60;
+
+    if (hours && remainder) return `${hours}時間${remainder}分`;
+    if (hours) return `${hours}時間`;
+    return `${remainder}分`;
+  }
+
+  function formatClock(seconds) {
+    const total = Math.max(0, Math.floor(seconds));
+    const h = String(Math.floor(total / 3600)).padStart(2, "0");
+    const m = String(Math.floor(total / 60) % 60).padStart(2, "0");
+    const s = String(total % 60).padStart(2, "0");
+    return `${h}:${m}:${s}`;
+  }
+
+  function setText(selector, value) {
+    const element = $(selector);
+    if (element) element.textContent = String(value ?? "");
+  }
+
+  function setValue(selector, value) {
+    const element = $(selector);
+    if (element) element.value = value ?? "";
+  }
+
+  function setChecked(selector, value) {
+    const element = $(selector);
+    if (element) element.checked = Boolean(value);
+  }
+
+  function setWidth(selector, value) {
+    const element = $(selector);
+    if (!element) return;
+
+    const percent = Math.max(0, Math.min(100, Number(value) || 0));
+    element.style.width = `${percent}%`;
+    element.setAttribute("aria-valuenow", String(Math.round(percent)));
+  }
+
+  function showMessage(message) {
+    const element = $("#cosmos-message");
+
+    if (!element) {
+      console.info(message);
+      return;
+    }
+
+    element.textContent = message;
+    element.hidden = false;
+    element.classList.add("is-visible");
+
+    clearTimeout(showMessage.timeout);
+
+    showMessage.timeout = setTimeout(() => {
+      element.classList.remove("is-visible");
+      element.hidden = true;
+    }, 2800);
+  }
+
+  function safeCall(object, method, ...args) {
+    if (object && typeof object[method] === "function") {
+      try {
+        return object[method](...args);
+      } catch (error) {
+        console.error(`${method} の実行に失敗しました:`, error);
+        showMessage("処理に失敗しました。コンソールを確認してください。");
+      }
+    }
+
+    return undefined;
+  }
+
+  /* =======================================================
+     旧データの読み込み
+     古いキーを勝手に削除しない
+     ======================================================= */
+
+  function loadLegacyData() {
+    try {
+      const raw = localStorage.getItem(LEGACY_KEY);
+      if (!raw) return clone(DEFAULTS);
+
+      const parsed = JSON.parse(raw);
 
       return {
         ...clone(DEFAULTS),
@@ -101,92 +228,66 @@
         rocket: {
           ...clone(DEFAULTS.rocket),
           ...(parsed.rocket || {})
-        }
+        },
+        subjects: Array.isArray(parsed.subjects)
+          ? parsed.subjects
+          : clone(DEFAULTS.subjects),
+        studyRecords: Array.isArray(parsed.studyRecords)
+          ? parsed.studyRecords
+          : [],
+        studyItems: Array.isArray(parsed.studyItems)
+          ? parsed.studyItems
+          : [],
+        events: Array.isArray(parsed.events) ? parsed.events : [],
+        tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
+        goals: Array.isArray(parsed.goals) ? parsed.goals : [],
+        goalNodes: Array.isArray(parsed.goalNodes) ? parsed.goalNodes : [],
+        habits: Array.isArray(parsed.habits) ? parsed.habits : [],
+        countdowns: Array.isArray(parsed.countdowns)
+          ? parsed.countdowns
+          : [],
+        timetable: Array.isArray(parsed.timetable)
+          ? parsed.timetable
+          : [],
+        notifications: Array.isArray(parsed.notifications)
+          ? parsed.notifications
+          : []
       };
     } catch (error) {
-      console.error("保存データを読み込めませんでした:", error);
+      console.error("旧データを読み込めませんでした:", error);
       return clone(DEFAULTS);
     }
   }
 
-  function saveData() {
+  function saveLegacyData() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      localStorage.setItem(LEGACY_KEY, JSON.stringify(data));
       return true;
     } catch (error) {
-      console.error("データを保存できませんでした:", error);
+      console.error("旧データを保存できませんでした:", error);
       showMessage("保存できませんでした。空き容量を確認してください。");
       return false;
     }
   }
 
-  function uid(prefix = "item") {
-    return `${prefix}-${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2, 8)}`;
+  function totalMinutes(records) {
+    return records.reduce(
+      (sum, record) => sum + Math.max(0, Number(record.minutes) || 0),
+      0
+    );
   }
 
-  function dateKey(date) {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, "0");
-    const d = String(date.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
+  function recordsForDate(date) {
+    return data.studyRecords.filter(record => record.date === date);
   }
 
-  function todayKey() {
-    return dateKey(new Date());
+  function totalForDate(date) {
+    return totalMinutes(recordsForDate(date));
   }
 
-  function parseDate(value) {
-    const [y, m, d] = value.split("-").map(Number);
-    return new Date(y, m - 1, d);
-  }
-
-  function escapeHTML(value) {
-    return String(value ?? "").replace(/[&<>"']/g, char => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;"
-    })[char]);
-  }
-
-  function formatMinutes(minutes) {
-    const total = Math.max(0, Math.floor(minutes));
-    const hours = Math.floor(total / 60);
-    const mins = total % 60;
-
-    if (hours && mins) return `${hours}時間${mins}分`;
-    if (hours) return `${hours}時間`;
-    return `${mins}分`;
-  }
-
-  function formatClock(seconds) {
-    const total = Math.max(0, Math.floor(seconds));
-    const h = String(Math.floor(total / 3600)).padStart(2, "0");
-    const m = String(Math.floor(total / 60) % 60).padStart(2, "0");
-    const s = String(total % 60).padStart(2, "0");
-    return `${h}:${m}:${s}`;
-  }
-
-  function showMessage(message) {
-    const toast = $("#cosmos-message");
-    if (!toast) {
-      console.info(message);
-      return;
-    }
-
-    toast.textContent = message;
-    toast.classList.add("is-visible");
-    toast.hidden = false;
-
-    clearTimeout(showMessage.timeout);
-    showMessage.timeout = setTimeout(() => {
-      toast.classList.remove("is-visible");
-      toast.hidden = true;
-    }, 2800);
-  }
+  /* =======================================================
+     画面切り替え
+     ======================================================= */
 
   function openMenu() {
     const menu = $("#side-menu");
@@ -221,6 +322,7 @@
 
   function showView(name) {
     const target = $(`#view-${CSS.escape(name)}`);
+
     if (!target) {
       showMessage("この画面はまだ用意されていません。");
       return;
@@ -230,32 +332,48 @@
 
     $$(".page-section").forEach(section => {
       const active = section === target;
-      section.classList.toggle("active", active);
       section.hidden = !active;
+      section.classList.toggle("active", active);
       section.setAttribute("aria-hidden", String(!active));
     });
 
     $$("[data-view]").forEach(button => {
       const active = button.dataset.view === name;
       button.classList.toggle("active", active);
-      button.setAttribute("aria-current", active ? "page" : "false");
+
+      if (active) {
+        button.setAttribute("aria-current", "page");
+      } else {
+        button.removeAttribute("aria-current");
+      }
     });
 
     closeMenu();
-
-    if (name === "home") renderHome();
-    if (name === "study") renderStudy();
-    if (name === "calendar") renderCalendar();
-    if (name === "statistics") renderStatistics();
-    if (name === "goals") renderGoals();
-    if (name === "rocket") renderRocket();
-    if (name === "economy") renderEconomy();
-    if (name === "countdown") renderCountdown();
-    if (name === "notifications") renderNotifications();
-    if (name === "settings") renderSettings();
+    renderCurrentView();
 
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
+
+  function renderCurrentView() {
+    const renderers = {
+      home: renderHome,
+      study: renderStudy,
+      calendar: renderCalendar,
+      statistics: renderStatistics,
+      goals: renderGoals,
+      rocket: renderRocket,
+      economy: renderEconomy,
+      countdown: renderCountdown,
+      notifications: renderNotifications,
+      settings: renderSettings
+    };
+
+    renderers[currentView]?.();
+  }
+
+  /* =======================================================
+     ダイアログ
+     ======================================================= */
 
   function dialog(title, content, confirmText = "保存") {
     const element = $("#cosmos-dialog");
@@ -264,10 +382,13 @@
     const confirmButton = $("#cosmos-dialog-confirm");
 
     if (!element || !contentElement || !confirmButton) {
+      showMessage("ダイアログのHTMLが見つかりません。");
       return Promise.resolve(null);
     }
 
-    titleElement.textContent = title;
+    if (dialogResolve) closeDialog(null);
+
+    if (titleElement) titleElement.textContent = title;
     contentElement.innerHTML = content;
     confirmButton.textContent = confirmText;
     confirmButton.disabled = false;
@@ -285,12 +406,13 @@
 
   function closeDialog(result = null) {
     const element = $("#cosmos-dialog");
-    if (!element) return;
 
-    if (typeof element.close === "function" && element.open) {
-      element.close();
-    } else {
-      element.removeAttribute("open");
+    if (element) {
+      if (typeof element.close === "function" && element.open) {
+        element.close();
+      } else {
+        element.removeAttribute("open");
+      }
     }
 
     if (dialogResolve) {
@@ -300,21 +422,35 @@
     }
   }
 
-  function dialogValue(name) {
-    const field = $(`[name="${name}"]`, $("#cosmos-dialog-content"));
-    return field ? field.value.trim() : "";
+  function readDialogFields() {
+    const result = {};
+    const fields = $$("#cosmos-dialog-content input, #cosmos-dialog-content select, #cosmos-dialog-content textarea");
+
+    for (const field of fields) {
+      if (!field.reportValidity()) return null;
+      if (!field.name) continue;
+
+      result[field.name] = field.type === "checkbox"
+        ? field.checked
+        : field.value.trim();
+    }
+
+    return result;
   }
+
+  /* =======================================================
+     学習記録
+     ======================================================= */
 
   function addStudyRecord(record) {
     const minutes = Math.floor(Number(record.minutes));
+    const subject = String(record.subject || "").trim();
+    const item = String(record.item || "").trim();
 
-    if (!Number.isFinite(minutes) || minutes <= 0) {
+    if (!Number.isFinite(minutes) || minutes < 1) {
       showMessage("学習時間は1分以上にしてください。");
       return false;
     }
-
-    const subject = String(record.subject || "").trim();
-    const item = String(record.item || "").trim();
 
     if (!subject) {
       showMessage("教科を入力してください。");
@@ -323,7 +459,7 @@
 
     const date = record.date || todayKey();
 
-    const savedRecord = {
+    data.studyRecords.push({
       id: uid("study"),
       date,
       subject,
@@ -331,15 +467,9 @@
       minutes,
       note: String(record.note || "").trim(),
       createdAt: new Date().toISOString()
-    };
+    });
 
-    data.studyRecords.push(savedRecord);
-
-    const existingSubject = data.subjects.find(
-      entry => entry.name === subject
-    );
-
-    if (!existingSubject) {
+    if (!data.subjects.some(entry => entry.name === subject)) {
       data.subjects.push({
         id: uid("subject"),
         name: subject,
@@ -357,172 +487,45 @@
       });
     }
 
-    awardStudyExp(minutes);
-    saveData();
-    renderAll();
+    saveLegacyData();
 
-    showMessage("学習記録を保存しました。行動実績にも反映しました。");
+    /*
+     * 機能別モジュールにも記録を渡す。
+     * モジュールの公開APIに該当するメソッドがある場合に実行する。
+     */
+    safeCall(study, "addManualRecord", {
+      subject,
+      item,
+      minutes,
+      date,
+      note: record.note || ""
+    });
+
+    safeCall(study, "addStudyRecord", {
+      subject,
+      item,
+      minutes,
+      date,
+      note: record.note || ""
+    });
+
+    renderAll();
+    showMessage("学習記録を保存しました。");
     return true;
   }
 
   function colorForIndex(index) {
     const colors = [
-      "#69a7ff",
-      "#b69aff",
-      "#ff8fc7",
-      "#76e3b0",
-      "#ffd780",
-      "#66e0e8",
-      "#ff8295"
+      "#69a7ff", "#b69aff", "#ff8fc7",
+      "#76e3b0", "#ffd780", "#66e0e8", "#ff8295"
     ];
 
     return colors[index % colors.length];
   }
 
-  function totalMinutes(records) {
-    return records.reduce((sum, record) =>
-      sum + Math.max(0, Number(record.minutes) || 0), 0);
-  }
-
-  function recordsForDate(date) {
-    return data.studyRecords.filter(record => record.date === date);
-  }
-
-  function totalForDate(date) {
-    return totalMinutes(recordsForDate(date));
-  }
-
-  function totalForRange(start, end) {
-    return totalMinutes(data.studyRecords.filter(record =>
-      record.date >= start && record.date <= end
-    ));
-  }
-
-  function startTimer() {
-    if (timer.running) return;
-
-    timer.running = true;
-    timer.startedAt = Date.now();
-    timer.interval = setInterval(updateTimerDisplay, 250);
-
-    $("#study-timer-status") &&
-      ($("#study-timer-status").textContent = "学習中");
-
-    updateTimerButtons();
-    updateTimerDisplay();
-  }
-
-  function pauseTimer() {
-    if (!timer.running) return;
-
-    timer.accumulated += Date.now() - timer.startedAt;
-    timer.running = false;
-    clearInterval(timer.interval);
-    timer.interval = null;
-
-    $("#study-timer-status") &&
-      ($("#study-timer-status").textContent = "一時停止中");
-
-    updateTimerButtons();
-    updateTimerDisplay();
-  }
-
-  function resetTimer() {
-    clearInterval(timer.interval);
-
-    timer = {
-      running: false,
-      startedAt: 0,
-      accumulated: 0,
-      subject: "",
-      item: "",
-      interval: null
-    };
-
-    updateTimerButtons();
-    updateTimerDisplay();
-
-    const status = $("#study-timer-status");
-    if (status) status.textContent = "待機中";
-  }
-
-  function elapsedMilliseconds() {
-    return timer.accumulated +
-      (timer.running ? Date.now() - timer.startedAt : 0);
-  }
-
-  function updateTimerDisplay() {
-    const display = $("#study-timer-display");
-    if (!display) return;
-
-    display.textContent = formatClock(
-      elapsedMilliseconds() / 1000
-    );
-  }
-
-  function updateTimerButtons() {
-    const start = $('[data-action="timer-start"]');
-    const pause = $('[data-action="timer-pause"]');
-    const finish = $('[data-action="timer-finish"]');
-
-    if (start) start.disabled = timer.running;
-    if (pause) pause.disabled = !timer.running;
-    if (finish) finish.disabled = elapsedMilliseconds() < 1000;
-  }
-
-  async function finishTimer() {
-    if (timer.running) pauseTimer();
-
-    const minutes = Math.floor(elapsedMilliseconds() / 60000);
-
-    if (minutes < 1) {
-      showMessage("1分以上計測してから記録してください。");
-      return;
-    }
-
-    const content = `
-      <label>教科
-        <input name="subject" required maxlength="60"
-          placeholder="例：数学" value="${escapeHTML(timer.subject)}">
-      </label>
-      <label>学習した内容
-        <input name="item" maxlength="120"
-          placeholder="例：二次関数" value="${escapeHTML(timer.item)}">
-      </label>
-      <label>記録時間（分）
-        <input name="minutes" type="number" min="1"
-          max="${minutes}" value="${minutes}" required>
-      </label>
-      <label>メモ
-        <textarea name="note" maxlength="500"
-          placeholder="任意"></textarea>
-      </label>
-      <p>計測時間：${formatMinutes(minutes)}</p>
-    `;
-
-    const result = await dialog("学習を記録", content, "記録する");
-
-    if (!result) return;
-
-    const success = addStudyRecord({
-      subject: result.subject,
-      item: result.item,
-      minutes: result.minutes,
-      note: result.note,
-      date: todayKey()
-    });
-
-    if (success) resetTimer();
-  }
-
   function renderSubjects() {
     const list = $("#study-subject-list");
     if (!list) return;
-
-    if (!data.subjects.length) {
-      list.innerHTML = "<p>教科がありません。教科を追加してください。</p>";
-      return;
-    }
 
     list.innerHTML = data.subjects.map(subject => {
       const minutes = totalMinutes(data.studyRecords.filter(
@@ -537,11 +540,11 @@
             <strong>${escapeHTML(subject.name)}</strong>
             <small>累計 ${formatMinutes(minutes)}</small>
           </div>
-          <button type="button" data-remove-subject="${escapeHTML(subject.id)}"
-            aria-label="${escapeHTML(subject.name)}を削除">削除</button>
+          <button type="button"
+            data-remove-subject="${escapeHTML(subject.id)}">削除</button>
         </article>
       `;
-    }).join("");
+    }).join("") || "<p>教科を追加してください。</p>";
   }
 
   function renderStudyRecords() {
@@ -549,13 +552,10 @@
     if (!list) return;
 
     const records = [...data.studyRecords].sort((a, b) =>
-      `${b.date}${b.createdAt}`.localeCompare(`${a.date}${a.createdAt}`)
+      `${b.date}${b.createdAt || ""}`.localeCompare(
+        `${a.date}${a.createdAt || ""}`
+      )
     );
-
-    if (!records.length) {
-      list.innerHTML = "<p>まだ学習記録がありません。</p>";
-      return;
-    }
 
     list.innerHTML = records.slice(0, 100).map(record => `
       <article class="record-card">
@@ -566,10 +566,10 @@
           ${record.note ? `<p>${escapeHTML(record.note)}</p>` : ""}
         </div>
         <strong>${formatMinutes(record.minutes)}</strong>
-        <button type="button" data-delete-record="${escapeHTML(record.id)}"
-          aria-label="学習記録を削除">削除</button>
+        <button type="button"
+          data-delete-record="${escapeHTML(record.id)}">削除</button>
       </article>
-    `).join("");
+    `).join("") || "<p>まだ学習記録がありません。</p>";
   }
 
   function renderStudy() {
@@ -585,11 +585,11 @@
   async function addSubject() {
     const result = await dialog("教科を追加", `
       <label>教科名
-        <input name="name" maxlength="60" required placeholder="例：情報">
+        <input name="name" required maxlength="60" placeholder="例：情報">
       </label>
     `);
 
-    if (!result || !result.name) return;
+    if (!result?.name) return;
 
     if (data.subjects.some(subject => subject.name === result.name)) {
       showMessage("その教科はすでに登録されています。");
@@ -602,7 +602,7 @@
       color: colorForIndex(data.subjects.length)
     });
 
-    saveData();
+    saveLegacyData();
     renderStudy();
     showMessage("教科を追加しました。");
   }
@@ -617,7 +617,7 @@
       </label>
     `);
 
-    if (!result || !result.subject || !result.name) return;
+    if (!result?.subject || !result?.name) return;
 
     if (!data.subjects.some(subject => subject.name === result.subject)) {
       data.subjects.push({
@@ -627,37 +627,160 @@
       });
     }
 
-    data.studyItems.push({
-      id: uid("study-item"),
-      subject: result.subject,
-      name: result.name
-    });
+    if (!data.studyItems.some(entry =>
+      entry.subject === result.subject && entry.name === result.name
+    )) {
+      data.studyItems.push({
+        id: uid("study-item"),
+        subject: result.subject,
+        name: result.name
+      });
+    }
 
-    saveData();
+    saveLegacyData();
     renderStudy();
     showMessage("学習項目を追加しました。");
   }
 
-  function renderHome() {
-    const todayMinutes = totalForDate(todayKey());
-    const goal = Math.max(1, Number(data.settings.dailyGoal) || 120);
-    const percent = Math.min(100, Math.round(todayMinutes / goal * 100));
+  /* =======================================================
+     タイマー
+     ======================================================= */
 
-    setText("#home-today-time", formatMinutes(todayMinutes));
+  function elapsedMilliseconds() {
+    return timerAccumulated +
+      (timerRunning ? Date.now() - timerStartedAt : 0);
+  }
+
+  function startTimer() {
+    if (timerRunning) return;
+
+    timerRunning = true;
+    timerStartedAt = Date.now();
+
+    clearInterval(timerInterval);
+    timerInterval = setInterval(updateTimerDisplay, 250);
+
+    setText("#study-timer-status", "学習中");
+    updateTimerButtons();
+    updateTimerDisplay();
+  }
+
+  function pauseTimer() {
+    if (!timerRunning) return;
+
+    timerAccumulated += Date.now() - timerStartedAt;
+    timerRunning = false;
+
+    clearInterval(timerInterval);
+    timerInterval = null;
+
+    setText("#study-timer-status", "一時停止中");
+    updateTimerButtons();
+    updateTimerDisplay();
+  }
+
+  function resetTimer() {
+    clearInterval(timerInterval);
+
+    timerInterval = null;
+    timerStartedAt = 0;
+    timerAccumulated = 0;
+    timerRunning = false;
+
+    updateTimerDisplay();
+    updateTimerButtons();
+    setText("#study-timer-status", "待機中");
+  }
+
+  function updateTimerDisplay() {
+    setText(
+      "#study-timer-display",
+      formatClock(elapsedMilliseconds() / 1000)
+    );
+    updateTimerButtons();
+  }
+
+  function updateTimerButtons() {
+    const start = $('[data-action="timer-start"]');
+    const pause = $('[data-action="timer-pause"]');
+    const finish = $('[data-action="timer-finish"]');
+
+    if (start) start.disabled = timerRunning;
+    if (pause) pause.disabled = !timerRunning;
+    if (finish) finish.disabled = elapsedMilliseconds() < 1000;
+  }
+
+  async function finishTimer() {
+    if (timerRunning) pauseTimer();
+
+    const minutes = Math.floor(elapsedMilliseconds() / 60000);
+
+    if (minutes < 1) {
+      showMessage("1分以上計測してから記録してください。");
+      return;
+    }
+
+    const result = await dialog("学習を記録", `
+      <label>教科
+        <input name="subject" required maxlength="60" placeholder="例：数学">
+      </label>
+      <label>学習した内容
+        <input name="item" maxlength="120" placeholder="例：二次関数">
+      </label>
+      <label>記録時間（分）
+        <input name="minutes" type="number" min="1"
+          max="${minutes}" value="${minutes}" required>
+      </label>
+      <label>メモ
+        <textarea name="note" maxlength="500"></textarea>
+      </label>
+      <p>計測時間：${formatMinutes(minutes)}</p>
+    `, "記録する");
+
+    if (!result) return;
+
+    const success = addStudyRecord({
+      subject: result.subject,
+      item: result.item,
+      minutes: result.minutes,
+      note: result.note,
+      date: todayKey()
+    });
+
+    if (success) resetTimer();
+  }
+
+  /* =======================================================
+     ホーム
+     ======================================================= */
+
+  function renderHome() {
+    const minutes = totalForDate(todayKey());
+    const goal = Math.max(1, Number(data.settings.dailyGoal) || 120);
+    const percent = Math.min(100, Math.round(minutes / goal * 100));
+
+    setText("#home-today-time", formatMinutes(minutes));
     setText("#home-goal-percent", `${percent}%`);
     setText("#home-goal-message",
-      todayMinutes >= goal ? "今日の目標達成！" : "目標まであと " +
-      formatMinutes(goal - todayMinutes));
-
+      minutes >= goal
+        ? "今日の目標達成！"
+        : `目標まであと ${formatMinutes(goal - minutes)}`
+    );
     setWidth("#home-goal-progress", percent);
 
-    setText("#home-rocket-level", `Lv.${data.rocket.level}`);
-    setText("#home-rocket-exp", `${data.rocket.exp} EXP`);
-    setWidth("#home-rocket-progress", data.rocket.exp % 100);
+    const rocketData = safeCall(rocket, "getRocket");
+    const rocketName = rocketData?.name || data.rocket.name || "COSMOS";
+    const rocketLevel = rocketData?.level || data.rocket.level || 1;
+    const rocketExp = rocketData?.exp ?? data.rocket.exp ?? 0;
 
-    const nextRecord = [...data.studyItems].slice(0, 1)[0];
+    setText("#home-rocket-level", `Lv.${rocketLevel}`);
+    setText("#home-rocket-exp", `${rocketExp} EXP`);
+    setWidth("#home-rocket-progress", rocketExp % 100);
     setText("#home-next-mission",
-      nextRecord ? `${nextRecord.subject}：${nextRecord.name}` : "学習項目を登録しよう");
+      data.studyItems[0]
+        ? `${data.studyItems[0].subject}：${data.studyItems[0].name}`
+        : "学習項目を登録しよう"
+    );
 
     renderHomeSchedule();
     renderHomeCountdown();
@@ -671,30 +794,26 @@
       .filter(event => event.date === todayKey())
       .sort((a, b) => (a.time || "").localeCompare(b.time || ""));
 
-    const records = recordsForDate(todayKey());
-
     const rows = [
       ...events.map(event => ({
         time: event.time || "",
         title: event.title,
         type: "予定"
       })),
-      ...records.map(record => ({
+      ...recordsForDate(todayKey()).map(record => ({
         time: "",
-        title: `${record.subject}${record.item ? "： " + record.item : ""} (${formatMinutes(record.minutes)})`,
+        title: `${record.subject}${record.item ? `：${record.item}` : ""}（${formatMinutes(record.minutes)}）`,
         type: "実績"
       }))
     ].sort((a, b) => a.time.localeCompare(b.time));
 
-    list.innerHTML = rows.length
-      ? rows.map(row => `
-          <article class="schedule-row">
-            <span>${escapeHTML(row.time || "—")}</span>
-            <span class="schedule-type">${row.type}</span>
-            <span>${escapeHTML(row.title)}</span>
-          </article>
-        `).join("")
-      : "<p>今日の予定・実績はありません。</p>";
+    list.innerHTML = rows.map(row => `
+      <article class="schedule-row">
+        <span>${escapeHTML(row.time || "—")}</span>
+        <span class="schedule-type">${row.type}</span>
+        <span>${escapeHTML(row.title)}</span>
+      </article>
+    `).join("") || "<p>今日の予定・実績はありません。</p>";
   }
 
   function renderHomeCountdown() {
@@ -703,24 +822,30 @@
 
     const today = parseDate(todayKey());
 
-    list.innerHTML = data.countdowns.slice(0, 3).map(item => {
-      const days = Math.ceil(
-        (parseDate(item.date) - today) / 86400000
-      );
+    list.innerHTML = [...data.countdowns]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(0, 3)
+      .map(item => {
+        const days = Math.round(
+          (parseDate(item.date) - today) / 86400000
+        );
 
-      return `
-        <article class="countdown-row">
-          <strong>${escapeHTML(item.title)}</strong>
-          <span>${days < 0 ? "期限超過" : `あと ${days} 日`}</span>
-        </article>
-      `;
-    }).join("") || "<p>カウントダウンはありません。</p>";
+        return `
+          <article class="countdown-row">
+            <strong>${escapeHTML(item.title)}</strong>
+            <span>${days < 0 ? `${Math.abs(days)}日超過` : `あと ${days} 日`}</span>
+          </article>
+        `;
+      }).join("") || "<p>カウントダウンはありません。</p>";
   }
+
+  /* =======================================================
+     カレンダー
+     ======================================================= */
 
   function renderCalendar() {
     setText("#calendar-month-label",
       `${calendarMonth.getFullYear()}年${calendarMonth.getMonth() + 1}月`);
-
     setText("#calendar-selected-date-label", selectedDate);
 
     const grid = $("#calendar-grid");
@@ -744,11 +869,10 @@
         const key = dateKey(new Date(year, month, day));
         const hasEvent = data.events.some(event => event.date === key);
         const hasStudy = data.studyRecords.some(record => record.date === key);
-        const selected = key === selectedDate;
 
         html += `
           <button type="button"
-            class="calendar-day${selected ? " selected" : ""}${key === todayKey() ? " today" : ""}"
+            class="calendar-day${key === selectedDate ? " selected" : ""}${key === todayKey() ? " today" : ""}"
             data-calendar-date="${key}">
             <span>${day}</span>
             ${hasEvent ? '<i class="calendar-dot event-dot"></i>' : ""}
@@ -787,29 +911,27 @@
         id: record.id,
         type: "実績",
         time: "",
-        title: `${record.subject}${record.item ? "： " + record.item : ""}`,
+        title: `${record.subject}${record.item ? `：${record.item}` : ""}`,
         detail: formatMinutes(record.minutes)
       }))
     ].sort((a, b) => a.time.localeCompare(b.time));
 
-    list.innerHTML = entries.length
-      ? entries.map(entry => `
-          <article class="day-entry">
-            <span class="entry-type">${entry.type}</span>
-            <strong>${escapeHTML(entry.title)}</strong>
-            <span>${escapeHTML(entry.time || entry.detail)}</span>
-            ${entry.type === "予定"
-              ? `<button type="button" data-delete-event="${escapeHTML(entry.id)}">削除</button>`
-              : ""}
-          </article>
-        `).join("")
-      : "<p>この日の予定・実績はありません。</p>";
+    list.innerHTML = entries.map(entry => `
+      <article class="day-entry">
+        <span class="entry-type">${entry.type}</span>
+        <strong>${escapeHTML(entry.title)}</strong>
+        <span>${escapeHTML(entry.time || entry.detail)}</span>
+        ${entry.type === "予定"
+          ? `<button type="button" data-delete-event="${escapeHTML(entry.id)}">削除</button>`
+          : ""}
+      </article>
+    `).join("") || "<p>この日の予定・実績はありません。</p>";
   }
 
   async function addEvent() {
     const result = await dialog("予定を追加", `
       <label>予定名
-        <input name="title" required maxlength="120" placeholder="例：数学の課題">
+        <input name="title" required maxlength="120">
       </label>
       <label>日付
         <input name="date" type="date" required value="${selectedDate}">
@@ -822,19 +944,23 @@
       </label>
     `);
 
-    if (!result || !result.title || !result.date) return;
+    if (!result?.title || !result?.date) return;
 
-    data.events.push({
+    const event = {
       id: uid("event"),
       title: result.title,
       date: result.date,
-      time: result.time,
-      note: result.note
-    });
+      time: result.time || "",
+      note: result.note || ""
+    };
+
+    data.events.push(event);
+    safeCall(calendar, "addEvent", event);
 
     selectedDate = result.date;
     calendarMonth = parseDate(result.date);
-    saveData();
+
+    saveLegacyData();
     renderAll();
     showMessage("予定を追加しました。");
   }
@@ -851,14 +977,12 @@
         <th>${String(hour).padStart(2, "0")}:00</th>
         ${days.map((day, index) => {
           const entries = data.timetable.filter(item =>
-            item.day === index && Number(item.hour) === hour
+            Number(item.day) === index && Number(item.hour) === hour
           );
 
-          return `<td>${
-            entries.map(item =>
-              `<div class="timetable-entry">${escapeHTML(item.title)}</div>`
-            ).join("")
-          }</td>`;
+          return `<td>${entries.map(item =>
+            `<div class="timetable-entry">${escapeHTML(item.title)}</div>`
+          ).join("")}</td>`;
         }).join("")}
       </tr>
     `).join("");
@@ -890,7 +1014,7 @@
       </label>
     `);
 
-    if (!result || !result.title) return;
+    if (!result?.title) return;
 
     data.timetable.push({
       id: uid("timetable"),
@@ -899,7 +1023,7 @@
       title: result.title
     });
 
-    saveData();
+    saveLegacyData();
     renderTimetable();
     showMessage("時間割を保存しました。");
   }
@@ -907,14 +1031,14 @@
   async function addTask() {
     const result = await dialog("タスクを追加", `
       <label>タスク名
-        <input name="title" required maxlength="120" placeholder="例：英単語を覚える">
+        <input name="title" required maxlength="120">
       </label>
       <label>期限
         <input name="date" type="date" value="${todayKey()}">
       </label>
     `);
 
-    if (!result || !result.title) return;
+    if (!result?.title) return;
 
     data.tasks.push({
       id: uid("task"),
@@ -923,7 +1047,7 @@
       done: false
     });
 
-    saveData();
+    saveLegacyData();
     renderTasks();
     renderHome();
     showMessage("タスクを追加しました。");
@@ -946,6 +1070,10 @@
     `).join("") || "<p>タスクはありません。</p>";
   }
 
+  /* =======================================================
+     統計・グラフ
+     ======================================================= */
+
   function renderStatistics() {
     const today = totalForDate(todayKey());
     const goal = Number(data.settings.dailyGoal) || 120;
@@ -955,6 +1083,7 @@
     setText("#stats-today-progress",
       `${Math.min(100, Math.round(today / Math.max(1, goal) * 100))}%`);
 
+    safeCall(statistics, "getDashboard");
     drawSubjectChart();
     drawBarChart("#daily-bar-chart", 7);
     drawBarChart("#weekly-bar-chart", 7, true);
@@ -971,13 +1100,13 @@
 
     const rect = canvas.getBoundingClientRect();
     const ratio = window.devicePixelRatio || 1;
+    const width = Math.max(1, rect.width);
+    const height = Math.max(1, rect.height);
 
-    canvas.width = Math.max(1, rect.width * ratio);
-    canvas.height = Math.max(1, rect.height * ratio);
-    ctx.scale(ratio, ratio);
+    canvas.width = width * ratio;
+    canvas.height = height * ratio;
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 
-    const width = rect.width;
-    const height = rect.height;
     const centerX = width / 2;
     const centerY = height / 2;
     const radius = Math.min(width, height) * 0.38;
@@ -985,8 +1114,8 @@
 
     const values = data.subjects.map(subject => ({
       ...subject,
-      minutes: totalMinutes(data.studyRecords.filter(record =>
-        record.subject === subject.name
+      minutes: totalMinutes(data.studyRecords.filter(
+        record => record.subject === subject.name
       ))
     })).filter(subject => subject.minutes > 0);
 
@@ -1004,15 +1133,15 @@
       let angle = -Math.PI / 2;
 
       values.forEach(item => {
-        const nextAngle = angle + item.minutes / total * Math.PI * 2;
+        const next = angle + item.minutes / total * Math.PI * 2;
 
         ctx.beginPath();
-        ctx.arc(centerX, centerY, radius, angle, nextAngle);
-        ctx.strokeStyle = item.color;
+        ctx.arc(centerX, centerY, radius, angle, next);
+        ctx.strokeStyle = item.color || "#69a7ff";
         ctx.lineWidth = radius - innerRadius;
         ctx.stroke();
 
-        angle = nextAngle;
+        angle = next;
       });
     }
 
@@ -1041,13 +1170,13 @@
 
     const rect = canvas.getBoundingClientRect();
     const ratio = window.devicePixelRatio || 1;
+    const width = Math.max(1, rect.width);
+    const height = Math.max(1, rect.height);
 
-    canvas.width = Math.max(1, rect.width * ratio);
-    canvas.height = Math.max(1, rect.height * ratio);
-    ctx.scale(ratio, ratio);
+    canvas.width = width * ratio;
+    canvas.height = height * ratio;
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 
-    const width = rect.width;
-    const height = rect.height;
     const padding = 24;
     const today = parseDate(todayKey());
     const values = [];
@@ -1069,7 +1198,6 @@
     const barWidth = Math.max(3, slot * 0.56);
 
     ctx.clearRect(0, 0, width, height);
-
     ctx.strokeStyle = "rgba(170,193,255,.15)";
     ctx.lineWidth = 1;
 
@@ -1088,28 +1216,37 @@
 
       ctx.fillStyle = "#69a7ff";
       ctx.beginPath();
-      ctx.roundRect(x, y, barWidth, Math.max(2, barHeight), 4);
+
+      if (typeof ctx.roundRect === "function") {
+        ctx.roundRect(x, y, barWidth, Math.max(2, barHeight), 4);
+      } else {
+        ctx.rect(x, y, barWidth, Math.max(2, barHeight));
+      }
+
       ctx.fill();
 
       ctx.fillStyle = "#aab7d2";
       ctx.font = "10px sans-serif";
       ctx.textAlign = "center";
       ctx.fillText(
-        weekly ? `${item.date.getMonth() + 1}/${item.date.getDate()}` :
-          `${item.date.getMonth() + 1}/${item.date.getDate()}`,
+        `${item.date.getMonth() + 1}/${item.date.getDate()}`,
         x + barWidth / 2,
         height - 7
       );
     });
   }
 
+  /* =======================================================
+     目標マップ・習慣
+     ======================================================= */
+
   function renderGoals() {
     const list = $("#goal-list");
     if (!list) return;
 
     const completed = data.goals.filter(goal => goal.done).length;
-    setText("#goal-map-completion",
-      `${completed}/${data.goals.length}`);
+
+    setText("#goal-map-completion", `${completed}/${data.goals.length}`);
     setWidth("#goal-map-progress",
       data.goals.length ? completed / data.goals.length * 100 : 0);
 
@@ -1139,27 +1276,39 @@
     const rect = canvas.getBoundingClientRect();
     const ratio = window.devicePixelRatio || 1;
     const width = Math.max(rect.width, 280);
-    const height = Math.max(400, data.goalNodes.length * 100 + 120);
+
+    const moduleMap = safeCall(goals, "getMapData");
+    const moduleNodes = Array.isArray(moduleMap)
+      ? moduleMap
+      : moduleMap?.nodes;
+
+    const nodes = data.goalNodes.length
+      ? data.goalNodes
+      : Array.isArray(moduleNodes) && moduleNodes.length
+        ? moduleNodes
+        : [{
+            id: "root",
+            title: "月を目指す",
+            parentId: null,
+            done: false
+          }];
+
+    const height = Math.max(400, Math.ceil(nodes.length / 3) * 110 + 100);
 
     canvas.width = width * ratio;
     canvas.height = height * ratio;
     canvas.style.height = `${height}px`;
-    ctx.scale(ratio, ratio);
+
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, width, height);
 
-    const nodes = data.goalNodes.length
-      ? data.goalNodes
-      : [
-          { id: "root", title: "月を目指す", parentId: null, done: false }
-        ];
-
-    const centerX = width / 2;
     const positions = new Map();
+    const centerX = width / 2;
 
     nodes.forEach((node, index) => {
       positions.set(node.id, {
         x: centerX + ((index % 3) - 1) * Math.min(90, width * 0.24),
-        y: 55 + Math.floor(index / 3) * 95
+        y: 55 + Math.floor(index / 3) * 100
       });
     });
 
@@ -1180,7 +1329,7 @@
 
     nodes.forEach(node => {
       const point = positions.get(node.id);
-      const label = String(node.title || "").slice(0, 12);
+      if (!point) return;
 
       ctx.beginPath();
       ctx.arc(point.x, point.y, node.id === "root" ? 27 : 22, 0, Math.PI * 2);
@@ -1195,30 +1344,33 @@
       ctx.fillStyle = "#f2f5ff";
       ctx.textAlign = "center";
       ctx.font = "11px sans-serif";
-      ctx.fillText(label, point.x, point.y + 38);
+      ctx.fillText(String(node.title || "").slice(0, 12), point.x, point.y + 38);
     });
   }
 
   async function addGoal() {
     const result = await dialog("目標を追加", `
       <label>目標
-        <input name="title" required maxlength="120" placeholder="例：数学のテストで目標点を取る">
+        <input name="title" required maxlength="120">
       </label>
       <label>期限
         <input name="date" type="date">
       </label>
     `);
 
-    if (!result || !result.title) return;
+    if (!result?.title) return;
 
-    data.goals.push({
+    const goal = {
       id: uid("goal"),
       title: result.title,
-      date: result.date,
+      date: result.date || "",
       done: false
-    });
+    };
 
-    saveData();
+    data.goals.push(goal);
+    safeCall(goals, "addGoal", goal);
+
+    saveLegacyData();
     renderGoals();
     showMessage("目標を追加しました。");
   }
@@ -1230,7 +1382,7 @@
 
     const result = await dialog("スキルツリーに追加", `
       <label>ノード名
-        <input name="title" required maxlength="80" placeholder="例：基礎学力を完成させる">
+        <input name="title" required maxlength="80">
       </label>
       <label>接続先
         <select name="parentId">
@@ -1240,7 +1392,7 @@
       </label>
     `);
 
-    if (!result || !result.title) return;
+    if (!result?.title) return;
 
     data.goalNodes.push({
       id: uid("node"),
@@ -1249,7 +1401,7 @@
       done: false
     });
 
-    saveData();
+    saveLegacyData();
     renderGoals();
     showMessage("スキルツリーにノードを追加しました。");
   }
@@ -1257,11 +1409,11 @@
   async function addHabit() {
     const result = await dialog("習慣を追加", `
       <label>習慣名
-        <input name="title" required maxlength="100" placeholder="例：毎日英単語を復習">
+        <input name="title" required maxlength="100">
       </label>
     `);
 
-    if (!result || !result.title) return;
+    if (!result?.title) return;
 
     data.habits.push({
       id: uid("habit"),
@@ -1269,7 +1421,7 @@
       dates: []
     });
 
-    saveData();
+    saveLegacyData();
     renderHabits();
     showMessage("習慣を追加しました。");
   }
@@ -1279,7 +1431,8 @@
     if (!list) return;
 
     list.innerHTML = data.habits.map(habit => {
-      const doneToday = habit.dates.includes(todayKey());
+      const dates = Array.isArray(habit.dates) ? habit.dates : [];
+      const doneToday = dates.includes(todayKey());
 
       return `
         <article class="habit-row">
@@ -1288,64 +1441,67 @@
               ${doneToday ? "checked" : ""}>
             ${escapeHTML(habit.title)}
           </label>
-          <small>達成 ${habit.dates.length}日</small>
+          <small>達成 ${dates.length}日</small>
         </article>
       `;
     }).join("") || "<p>習慣を登録しましょう。</p>";
   }
 
-  function awardStudyExp(minutes) {
-    const oldLevel = data.rocket.level;
-    data.rocket.exp += Math.max(0, minutes);
-
-    while (data.rocket.exp >= 100) {
-      data.rocket.exp -= 100;
-      data.rocket.level += 1;
-    }
-
-    if (data.rocket.level > oldLevel) {
-      showMessage(`ロケットがレベル ${data.rocket.level} に上がりました！`);
-    }
-  }
+  /* =======================================================
+     ロケット
+     ======================================================= */
 
   function renderRocket() {
-    setText("#rocket-name", data.rocket.name);
-    setText("#rocket-level", `Lv.${data.rocket.level}`);
-    setText("#rocket-exp-label", `${data.rocket.exp}/100 EXP`);
-    setWidth("#rocket-exp-progress", data.rocket.exp);
+    const moduleRocket = safeCall(rocket, "getRocket") || {};
+
+    const name = moduleRocket.name || data.rocket.name || "COSMOS";
+    const level = Number(moduleRocket.level || data.rocket.level || 1);
+    const exp = Number(moduleRocket.exp ?? data.rocket.exp ?? 0);
+
+    setText("#rocket-name", name);
+    setText("#rocket-level", `Lv.${level}`);
+    setText("#rocket-exp-label", `${exp}/100 EXP`);
+    setWidth("#rocket-exp-progress", exp);
 
     const missionList = $("#mission-list");
     if (missionList) {
-      missionList.innerHTML = data.rocket.missions.map(mission => `
-        <article>${escapeHTML(mission.title)}</article>
-      `).join("") || "<p>ミッションは今後追加できます。</p>";
+      missionList.innerHTML = (data.rocket.missions || []).map(item =>
+        `<article>${escapeHTML(item.title)}</article>`
+      ).join("") || "<p>ミッションは今後追加できます。</p>";
     }
 
     const partsList = $("#rocket-parts-list");
     if (partsList) {
-      partsList.innerHTML = data.rocket.parts.map(part =>
-        `<article>${escapeHTML(part.title)}</article>`
+      partsList.innerHTML = (data.rocket.parts || []).map(item =>
+        `<article>${escapeHTML(item.title)}</article>`
       ).join("") || "<p>パーツはまだありません。</p>";
     }
 
     const explorationList = $("#space-exploration-list");
     if (explorationList) {
-      explorationList.innerHTML = data.rocket.explorations.map(item =>
+      explorationList.innerHTML = (data.rocket.explorations || []).map(item =>
         `<article>${escapeHTML(item.title)}</article>`
       ).join("") || "<p>学習を積み重ねて宇宙を目指しましょう。</p>";
     }
   }
 
-  function renderEconomy() {
-    setText("#economy-balance",
-      `${Number(data.economy.balance || 0).toLocaleString()} コスモ`);
+  /* =======================================================
+     経済
+     ======================================================= */
 
-    setText("#economy-net-worth",
-      `${Number(data.economy.balance || 0).toLocaleString()} コスモ`);
+  function renderEconomy() {
+    const moduleSummary = safeCall(economy, "getSummary");
+
+    const balance = Number(
+      moduleSummary?.balance ?? data.economy.balance ?? 0
+    );
+
+    setText("#economy-balance", `${balance.toLocaleString()} コスモ`);
+    setText("#economy-net-worth", `${balance.toLocaleString()} コスモ`);
 
     const loans = $("#economy-loan-list");
     if (loans) {
-      loans.innerHTML = data.economy.loans.map(loan => `
+      loans.innerHTML = (data.economy.loans || []).map(loan => `
         <article>
           <strong>${escapeHTML(loan.title || "借入")}</strong>
           <span>${Number(loan.amount || 0).toLocaleString()} コスモ</span>
@@ -1355,12 +1511,12 @@
 
     const transactions = $("#economy-transaction-list");
     if (transactions) {
-      transactions.innerHTML = [...data.economy.transactions]
+      transactions.innerHTML = [...(data.economy.transactions || [])]
         .reverse().slice(0, 50).map(item => `
           <article>
-            <span>${escapeHTML(item.date)}</span>
-            <span>${escapeHTML(item.title)}</span>
-            <strong>${item.amount >= 0 ? "+" : ""}${Number(item.amount).toLocaleString()}</strong>
+            <span>${escapeHTML(item.date || "")}</span>
+            <span>${escapeHTML(item.title || "")}</span>
+            <strong>${Number(item.amount) >= 0 ? "+" : ""}${Number(item.amount || 0).toLocaleString()}</strong>
           </article>
         `).join("") || "<p>取引履歴はありません。</p>";
     }
@@ -1385,6 +1541,7 @@
     if (!result) return;
 
     const amount = Math.floor(Number(result.amount));
+
     if (!Number.isFinite(amount) || amount <= 0) {
       showMessage("正しい金額を入力してください。");
       return;
@@ -1392,6 +1549,29 @@
 
     if (type === "withdraw" && amount > data.economy.balance) {
       showMessage("残高が不足しています。");
+      return;
+    }
+
+    /*
+     * 経済モジュールの公開メソッドが確認できる場合はそちらを優先。
+     * ここでは旧画面データも更新して表示との互換性を保つ。
+     */
+    const methodMap = {
+      deposit: "deposit",
+      withdraw: "withdraw",
+      borrow: "borrow"
+    };
+
+    const resultFromModule = safeCall(
+      economy,
+      methodMap[type],
+      amount,
+      result.title || labels[type]
+    );
+
+    if (resultFromModule !== undefined) {
+      renderEconomy();
+      showMessage("経済処理を実行しました。");
       return;
     }
 
@@ -1416,30 +1596,38 @@
       type
     });
 
-    saveData();
+    saveLegacyData();
     renderEconomy();
     showMessage("取引を保存しました。");
   }
 
+  /* =======================================================
+     カウントダウン
+     ======================================================= */
+
   async function addCountdown() {
     const result = await dialog("カウントダウンを追加", `
       <label>イベント名
-        <input name="title" required maxlength="100" placeholder="例：定期考査">
+        <input name="title" required maxlength="100">
       </label>
       <label>日付
         <input name="date" type="date" required>
       </label>
     `);
 
-    if (!result || !result.title || !result.date) return;
+    if (!result?.title || !result?.date) return;
 
-    data.countdowns.push({
+    const item = {
       id: uid("countdown"),
       title: result.title,
       date: result.date
-    });
+    };
 
-    saveData();
+    data.countdowns.push(item);
+    safeCall(countdown, "add", item);
+    safeCall(countdown, "addCountdown", item);
+
+    saveLegacyData();
     renderCountdown();
     renderHomeCountdown();
     showMessage("カウントダウンを追加しました。");
@@ -1451,23 +1639,30 @@
 
     const today = parseDate(todayKey());
 
-    list.innerHTML = data.countdowns.map(item => {
-      const days = Math.ceil(
-        (parseDate(item.date) - today) / 86400000
-      );
+    list.innerHTML = [...data.countdowns]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(item => {
+        const days = Math.round(
+          (parseDate(item.date) - today) / 86400000
+        );
 
-      return `
-        <article class="countdown-card">
-          <div>
-            <strong>${escapeHTML(item.title)}</strong>
-            <small>${escapeHTML(item.date)}</small>
-          </div>
-          <strong>${days < 0 ? `${Math.abs(days)}日超過` : `あと${days}日`}</strong>
-          <button type="button" data-delete-countdown="${escapeHTML(item.id)}">削除</button>
-        </article>
-      `;
-    }).join("") || "<p>イベントを追加してください。</p>";
+        return `
+          <article class="countdown-card">
+            <div>
+              <strong>${escapeHTML(item.title)}</strong>
+              <small>${escapeHTML(item.date)}</small>
+            </div>
+            <strong>${days < 0 ? `${Math.abs(days)}日超過` : `あと${days}日`}</strong>
+            <button type="button"
+              data-delete-countdown="${escapeHTML(item.id)}">削除</button>
+          </article>
+        `;
+      }).join("") || "<p>イベントを追加してください。</p>";
   }
+
+  /* =======================================================
+     通知
+     ======================================================= */
 
   function renderNotifications() {
     const list = $("#notification-list");
@@ -1504,49 +1699,97 @@
     }
   }
 
+  /* =======================================================
+     設定
+     ======================================================= */
+
   function renderSettings() {
-    setValue("#setting-daily-goal", data.settings.dailyGoal);
-    setValue("#setting-weekly-goal", data.settings.weeklyGoal);
-    setValue("#setting-minimum-action", data.settings.minimumAction);
-    setChecked("#setting-animations", data.settings.animations);
-    setValue("#setting-theme", data.settings.theme);
+    let settings;
+
+    try {
+      settings = getSettings();
+    } catch (error) {
+      console.error("設定を取得できませんでした:", error);
+      settings = data.settings;
+    }
+
+    if (!settings || typeof settings !== "object") {
+      settings = data.settings;
+    }
+
+    setValue("#setting-daily-goal",
+      settings.dailyGoalMinutes ?? settings.dailyGoal ?? data.settings.dailyGoal);
+
+    setValue("#setting-weekly-goal",
+      settings.weeklyGoalMinutes ?? settings.weeklyGoal ?? data.settings.weeklyGoal);
+
+    setValue("#setting-minimum-action",
+      settings.minimumActionMinutes ?? settings.minimumAction ?? data.settings.minimumAction);
+
+    setChecked("#setting-animations",
+      settings.animations ?? data.settings.animations);
+
+    setValue("#setting-theme", settings.theme || data.settings.theme);
 
     $$('input[name="bottomShortcut"]').forEach(input => {
-      input.checked = data.settings.shortcuts.includes(input.value);
+      input.checked = (settings.shortcuts || data.settings.shortcuts)
+        .includes(input.value);
     });
 
     renderBottomNavigation();
   }
 
-  function saveSettings(event) {
+  function saveSettingsFromForm(event) {
     event?.preventDefault();
 
-    data.settings.dailyGoal = Math.max(
-      1, Number($("#setting-daily-goal")?.value) || 120
+    const dailyGoal = Math.max(
+      1,
+      Number($("#setting-daily-goal")?.value) || 120
     );
 
-    data.settings.weeklyGoal = Math.max(
-      1, Number($("#setting-weekly-goal")?.value) || 840
+    const weeklyGoal = Math.max(
+      1,
+      Number($("#setting-weekly-goal")?.value) || 840
     );
 
-    data.settings.minimumAction = Math.max(
-      1, Number($("#setting-minimum-action")?.value) || 5
+    const minimumAction = Math.max(
+      1,
+      Number($("#setting-minimum-action")?.value) || 5
     );
 
-    data.settings.animations = $("#setting-animations")?.checked ?? true;
-    data.settings.theme = $("#setting-theme")?.value || "cosmos";
-
-    data.settings.shortcuts = $$('input[name="bottomShortcut"]:checked')
+    const animations = $("#setting-animations")?.checked ?? true;
+    const theme = $("#setting-theme")?.value || "cosmos";
+    const shortcuts = $$('input[name="bottomShortcut"]:checked')
       .map(input => input.value);
 
-    document.body.classList.toggle(
-      "animations-disabled",
-      !data.settings.animations
-    );
+    data.settings = {
+      ...data.settings,
+      dailyGoal,
+      weeklyGoal,
+      minimumAction,
+      animations,
+      theme,
+      shortcuts
+    };
 
-    document.documentElement.dataset.theme = data.settings.theme;
+    try {
+      saveSettings({
+        dailyGoalMinutes: dailyGoal,
+        weeklyGoalMinutes: weeklyGoal,
+        minimumActionMinutes: minimumAction,
+        animations,
+        theme,
+        shortcuts,
+        shareStudyRecords: false
+      });
+    } catch (error) {
+      console.error("設定モジュールへの保存に失敗しました:", error);
+    }
 
-    saveData();
+    document.body.classList.toggle("animations-disabled", !animations);
+    document.documentElement.dataset.theme = theme;
+
+    saveLegacyData();
     renderBottomNavigation();
     renderHome();
     showMessage("設定を保存しました。");
@@ -1557,15 +1800,17 @@
     if (!nav) return;
 
     const shortcuts = data.settings.shortcuts || [];
-    const buttons = $$("[data-shortcut]", nav);
 
-    buttons.forEach(button => {
-      const key = button.dataset.shortcut;
-      button.hidden = !shortcuts.includes(key);
+    $$("[data-shortcut]", nav).forEach(button => {
+      button.hidden = !shortcuts.includes(button.dataset.shortcut);
     });
 
     nav.hidden = shortcuts.length === 0;
   }
+
+  /* =======================================================
+     全画面更新
+     ======================================================= */
 
   function renderAll() {
     renderHome();
@@ -1577,31 +1822,13 @@
     renderEconomy();
     renderCountdown();
     renderNotifications();
+    renderSettings();
     renderBottomNavigation();
   }
 
-  function setText(selector, value) {
-    const element = $(selector);
-    if (element) element.textContent = value;
-  }
-
-  function setValue(selector, value) {
-    const element = $(selector);
-    if (element) element.value = value;
-  }
-
-  function setChecked(selector, value) {
-    const element = $(selector);
-    if (element) element.checked = Boolean(value);
-  }
-
-  function setWidth(selector, percent) {
-    const element = $(selector);
-    if (element) {
-      element.style.width = `${Math.max(0, Math.min(100, percent))}%`;
-      element.setAttribute("aria-valuenow", String(Math.round(percent)));
-    }
-  }
+  /* =======================================================
+     イベント登録
+     ======================================================= */
 
   function bindEvents() {
     $("#menu-open")?.addEventListener("click", openMenu);
@@ -1612,15 +1839,18 @@
       if (event.key === "Escape") closeMenu();
     });
 
-    $$("[data-view]").forEach(button => {
-      button.addEventListener("click", () => {
-        showView(button.dataset.view);
-      });
-    });
+    document.addEventListener("click", event => {
+      const viewButton = event.target.closest("[data-view]");
 
-    $$("[data-action]").forEach(button => {
-      button.addEventListener("click", () => {
-        const action = button.dataset.action;
+      if (viewButton) {
+        showView(viewButton.dataset.view);
+        return;
+      }
+
+      const actionButton = event.target.closest("[data-action]");
+
+      if (actionButton) {
+        const action = actionButton.dataset.action;
 
         if (action === "start-study") {
           showView("study");
@@ -1630,102 +1860,10 @@
         if (action === "timer-start") startTimer();
         if (action === "timer-pause") pauseTimer();
         if (action === "timer-finish") finishTimer();
-      });
-    });
 
-    $("#manual-study-form")?.addEventListener("submit", event => {
-      event.preventDefault();
-
-      const success = addStudyRecord({
-        subject: $("#manual-study-subject")?.value,
-        item: $("#manual-study-item")?.value,
-        date: $("#manual-study-date")?.value || todayKey(),
-        minutes: $("#manual-study-minutes")?.value,
-        note: $("#manual-study-note")?.value
-      });
-
-      if (success) event.target.reset();
-
-      const dateField = $("#manual-study-date");
-      if (dateField) dateField.value = todayKey();
-    });
-
-    $("#add-subject")?.addEventListener("click", addSubject);
-    $("#add-study-item")?.addEventListener("click", addStudyItem);
-
-    $("#add-event")?.addEventListener("click", addEvent);
-    $("#calendar-prev")?.addEventListener("click", () => {
-      calendarMonth = new Date(
-        calendarMonth.getFullYear(),
-        calendarMonth.getMonth() - 1,
-        1
-      );
-      renderCalendar();
-    });
-
-    $("#calendar-next")?.addEventListener("click", () => {
-      calendarMonth = new Date(
-        calendarMonth.getFullYear(),
-        calendarMonth.getMonth() + 1,
-        1
-      );
-      renderCalendar();
-    });
-
-    $("#calendar-grid")?.addEventListener("click", event => {
-      const button = event.target.closest("[data-calendar-date]");
-      if (!button) return;
-
-      selectedDate = button.dataset.calendarDate;
-      renderCalendar();
-    });
-
-    $("#edit-timetable")?.addEventListener("click", editTimetable);
-    $("#add-task")?.addEventListener("click", addTask);
-
-    $("#add-goal")?.addEventListener("click", addGoal);
-    $("#add-goal-map-node")?.addEventListener("click", addGoalNode);
-    $("#add-habit")?.addEventListener("click", addHabit);
-
-    $("#add-countdown")?.addEventListener("click", addCountdown);
-    $("#enable-notifications")?.addEventListener("click", enableNotifications);
-
-    $("#settings-study-form")?.addEventListener("submit", saveSettings);
-
-    $("#economy-deposit")?.addEventListener("click", () => economyTransaction("deposit"));
-    $("#economy-withdraw")?.addEventListener("click", () => economyTransaction("withdraw"));
-    $("#economy-borrow")?.addEventListener("click", () => economyTransaction("borrow"));
-
-    $("#cosmos-dialog-confirm")?.addEventListener("click", event => {
-      event.preventDefault();
-
-      const content = $("#cosmos-dialog-content");
-      const form = content?.querySelector("form");
-      const fields = content?.querySelectorAll("input, select, textarea") || [];
-
-      for (const field of fields) {
-        if (!field.reportValidity()) return;
+        return;
       }
 
-      const result = {};
-      fields.forEach(field => {
-        if (field.name) result[field.name] = field.value.trim();
-      });
-
-      closeDialog(result);
-    });
-
-    $("#cosmos-dialog")?.addEventListener("click", event => {
-      const element = $("#cosmos-dialog");
-      if (event.target === element) closeDialog(null);
-    });
-
-    $("#cosmos-dialog")?.addEventListener("cancel", event => {
-      event.preventDefault();
-      closeDialog(null);
-    });
-
-    document.addEventListener("click", event => {
       const button = event.target.closest("button");
       if (!button) return;
 
@@ -1736,7 +1874,7 @@
           record.id !== button.dataset.deleteRecord
         );
 
-        saveData();
+        saveLegacyData();
         renderAll();
         showMessage("学習記録を削除しました。");
       }
@@ -1754,7 +1892,7 @@
           item.id !== subject.id
         );
 
-        saveData();
+        saveLegacyData();
         renderStudy();
       }
 
@@ -1763,7 +1901,7 @@
           item.id !== button.dataset.deleteEvent
         );
 
-        saveData();
+        saveLegacyData();
         renderCalendar();
         renderHome();
       }
@@ -1773,7 +1911,7 @@
           item.id !== button.dataset.deleteTask
         );
 
-        saveData();
+        saveLegacyData();
         renderTasks();
         renderHome();
       }
@@ -1783,7 +1921,7 @@
           item.id !== button.dataset.deleteGoal
         );
 
-        saveData();
+        saveLegacyData();
         renderGoals();
       }
 
@@ -1792,10 +1930,91 @@
           item.id !== button.dataset.deleteCountdown
         );
 
-        saveData();
+        saveLegacyData();
         renderCountdown();
         renderHomeCountdown();
       }
+
+      if (button.id === "add-subject") addSubject();
+      if (button.id === "add-study-item") addStudyItem();
+      if (button.id === "add-event") addEvent();
+      if (button.id === "edit-timetable") editTimetable();
+      if (button.id === "add-task") addTask();
+      if (button.id === "add-goal") addGoal();
+      if (button.id === "add-goal-map-node") addGoalNode();
+      if (button.id === "add-habit") addHabit();
+      if (button.id === "add-countdown") addCountdown();
+      if (button.id === "enable-notifications") enableNotifications();
+
+      if (button.id === "calendar-prev") {
+        calendarMonth = new Date(
+          calendarMonth.getFullYear(),
+          calendarMonth.getMonth() - 1,
+          1
+        );
+        renderCalendar();
+      }
+
+      if (button.id === "calendar-next") {
+        calendarMonth = new Date(
+          calendarMonth.getFullYear(),
+          calendarMonth.getMonth() + 1,
+          1
+        );
+        renderCalendar();
+      }
+
+      if (button.id === "economy-deposit") economyTransaction("deposit");
+      if (button.id === "economy-withdraw") economyTransaction("withdraw");
+      if (button.id === "economy-borrow") economyTransaction("borrow");
+    });
+
+    $("#manual-study-form")?.addEventListener("submit", event => {
+      event.preventDefault();
+
+      const success = addStudyRecord({
+        subject: $("#manual-study-subject")?.value,
+        item: $("#manual-study-item")?.value,
+        date: $("#manual-study-date")?.value || todayKey(),
+        minutes: $("#manual-study-minutes")?.value,
+        note: $("#manual-study-note")?.value
+      });
+
+      if (success) {
+        event.target.reset();
+        setValue("#manual-study-date", todayKey());
+      }
+    });
+
+    $("#settings-study-form")?.addEventListener(
+      "submit",
+      saveSettingsFromForm
+    );
+
+    $("#calendar-grid")?.addEventListener("click", event => {
+      const button = event.target.closest("[data-calendar-date]");
+      if (!button) return;
+
+      selectedDate = button.dataset.calendarDate;
+      renderCalendar();
+    });
+
+    $("#cosmos-dialog-confirm")?.addEventListener("click", event => {
+      event.preventDefault();
+
+      const result = readDialogFields();
+      if (!result) return;
+
+      closeDialog(result);
+    });
+
+    $("#cosmos-dialog")?.addEventListener("click", event => {
+      if (event.target === $("#cosmos-dialog")) closeDialog(null);
+    });
+
+    $("#cosmos-dialog")?.addEventListener("cancel", event => {
+      event.preventDefault();
+      closeDialog(null);
     });
 
     document.addEventListener("change", event => {
@@ -1807,8 +2026,7 @@
         );
 
         if (task) task.done = input.checked;
-
-        saveData();
+        saveLegacyData();
         renderTasks();
       }
 
@@ -1818,8 +2036,7 @@
         );
 
         if (goal) goal.done = input.checked;
-
-        saveData();
+        saveLegacyData();
         renderGoals();
       }
 
@@ -1830,11 +2047,13 @@
 
         if (!habit) return;
 
-        habit.dates = habit.dates.filter(date => date !== todayKey());
+        habit.dates = (habit.dates || []).filter(
+          date => date !== todayKey()
+        );
 
         if (input.checked) habit.dates.push(todayKey());
 
-        saveData();
+        saveLegacyData();
         renderHabits();
       }
     });
@@ -1844,6 +2063,10 @@
       if (currentView === "goals") renderGoalTree();
     });
   }
+
+  /* =======================================================
+     初期化
+     ======================================================= */
 
   function init() {
     $$(".page-section").forEach(section => {
@@ -1866,7 +2089,8 @@
       !data.settings.animations
     );
 
-    document.documentElement.dataset.theme = data.settings.theme || "cosmos";
+    document.documentElement.dataset.theme =
+      data.settings.theme || "cosmos";
 
     renderAll();
     showView("home");
