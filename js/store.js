@@ -1,445 +1,467 @@
 
-"use strict";
-
 /* =========================================================
    ONE FOR ALL COSMOS
    js/store.js
-   共通データ保存・読み込み・初期化・移行
+
+   共通データ保存システム
+   ・学習記録
+   ・学習タイマー
+   ・カレンダー / タスク
+   ・目標マップ
+   ・ロケット進行状況
+   ・経済
+   ・カウントダウン
+   ・設定
+
+   注意：
+   既存の学習・タイマー・カレンダーの保存キーは維持する。
    ========================================================= */
 
-const PREFIX = "ofa-cosmos-";
-const VERSION = 1;
+"use strict";
 
-const DEFAULTS = {
-  version: VERSION,
-  settings: {
-    dailyGoal: 120,
-    weeklyGoal: 840,
-    minimumAction: 5,
-    animations: true,
-    theme: "cosmos",
-    shortcuts: [
-      "home",
-      "study",
-      "calendar",
-      "statistics",
-      "goals",
-      "rocket",
-      "economy"
-    ]
-  },
-  subjects: [
-    { id: "math", name: "数学", color: "#7c9cff", items: [] },
-    { id: "english", name: "英語", color: "#65d6ad", items: [] },
-    { id: "japanese", name: "国語", color: "#ff9b9b", items: [] },
-    { id: "science", name: "理科", color: "#c49bff", items: [] },
-    { id: "social", name: "社会", color: "#ffc778", items: [] }
-  ],
-  studyRecords: [],
-  timer: {
-    running: false,
-    startedAt: null,
-    subjectId: null,
-    itemId: null,
-    accumulatedMs: 0
-  },
-  calendar: {
-    events: [],
-    tasks: [],
-    timetable: []
-  },
-  goals: {
-    nodes: [],
-    habits: [],
-    goals: []
-  },
-  rocket: {
-    level: 1,
-    experience: 0,
-    claimedMissions: [],
-    parts: [],
-    explored: []
-  },
-  economy: {
-    balance: 0,
-    loans: [],
-    transactions: [],
-    lastInterestDate: null
-  },
-  countdowns: [],
-  notifications: [],
-  meta: {
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  }
-};
+/* =========================================================
+   1. 保存キー
+   ========================================================= */
 
-const clone = value => JSON.parse(JSON.stringify(value));
+export const STORE_KEYS = Object.freeze({
+  study: "oneforall-study-v1",
+  timer: "oneforall-timer-v1",
+  calendar: "personal-calendar-v1",
 
-function makeId(prefix = "item") {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random()
-    .toString(36).slice(2, 9)}`;
-}
+  goals: "oneforall-goals-v1",
+  rocket: "oneforall-rocket-v1",
+  economy: "oneforall-economy-v1",
+  countdown: "oneforall-countdown-v1",
+  settings: "oneforall-settings-v1"
+});
 
-function isObject(value) {
-  return value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value);
-}
+/* =========================================================
+   2. 保存領域へのアクセス
+   ========================================================= */
 
-function mergeDefaults(defaultValue, savedValue) {
-  if (Array.isArray(defaultValue)) {
-    return Array.isArray(savedValue)
-      ? savedValue
-      : clone(defaultValue);
-  }
-
-  if (isObject(defaultValue)) {
-    const result = {};
-    const saved = isObject(savedValue) ? savedValue : {};
-
-    for (const key of Object.keys(defaultValue)) {
-      result[key] = key in saved
-        ? mergeDefaults(defaultValue[key], saved[key])
-        : clone(defaultValue[key]);
-    }
-
-    for (const key of Object.keys(saved)) {
-      if (!(key in result)) result[key] = saved[key];
-    }
-
-    return result;
-  }
-
-  return savedValue === undefined
-    ? defaultValue
-    : savedValue;
-}
-
-function storageKey(name) {
-  return PREFIX + name;
-}
-
-function readRaw(name) {
+function getStorage() {
   try {
-    const raw = localStorage.getItem(storageKey(name));
-    return raw === null ? null : JSON.parse(raw);
+    if (typeof localStorage === "undefined") {
+      return null;
+    }
+
+    return localStorage;
   } catch (error) {
-    console.error(`[COSMOS] 読み込み失敗: ${name}`, error);
+    console.error(
+      "[COSMOS Store] 保存領域にアクセスできません。",
+      error
+    );
+
     return null;
   }
 }
 
-function writeRaw(name, value) {
+/* =========================================================
+   3. データの読み込み
+   ========================================================= */
+
+/**
+ * 保存データを読み込む。
+ *
+ * @param {string} key 保存キー
+ * @param {*} fallback データがない場合の初期値
+ * @returns {*} 読み込んだデータ
+ */
+export function loadData(key, fallback = null) {
+  const storage = getStorage();
+
+  if (!storage) {
+    return fallback;
+  }
+
   try {
-    localStorage.setItem(storageKey(name), JSON.stringify(value));
+    const raw = storage.getItem(key);
+
+    if (raw === null) {
+      return fallback;
+    }
+
+    return JSON.parse(raw);
+  } catch (error) {
+    console.error(
+      `[COSMOS Store] 読み込みに失敗しました: ${key}`,
+      error
+    );
+
+    return fallback;
+  }
+}
+
+/* =========================================================
+   4. データの保存
+   ========================================================= */
+
+/**
+ * データを保存する。
+ *
+ * @param {string} key 保存キー
+ * @param {*} value 保存するデータ
+ * @returns {boolean} 保存できたか
+ */
+export function saveData(key, value) {
+  const storage = getStorage();
+
+  if (!storage) {
+    return false;
+  }
+
+  try {
+    const serialized = JSON.stringify(value);
+
+    if (serialized === undefined) {
+      console.error(
+        `[COSMOS Store] 保存できないデータです: ${key}`
+      );
+
+      return false;
+    }
+
+    storage.setItem(key, serialized);
+
     return true;
   } catch (error) {
-    console.error(`[COSMOS] 保存失敗: ${name}`, error);
+    console.error(
+      `[COSMOS Store] 保存に失敗しました: ${key}`,
+      error
+    );
+
     return false;
   }
 }
 
-let data = null;
-let saveTimer = null;
+/* =========================================================
+   5. データの更新
+   ========================================================= */
 
-function load() {
-  if (data) return data;
-
-  const saved = readRaw("database");
-  data = mergeDefaults(DEFAULTS, saved);
-
-  if (!Array.isArray(data.studyRecords)) data.studyRecords = [];
-  if (!Array.isArray(data.subjects)) data.subjects = [];
-  if (!Array.isArray(data.calendar.events)) data.calendar.events = [];
-  if (!Array.isArray(data.calendar.tasks)) data.calendar.tasks = [];
-  if (!Array.isArray(data.goals.goals)) data.goals.goals = [];
-  if (!Array.isArray(data.countdowns)) data.countdowns = [];
-
-  data.version = VERSION;
-  save();
-
-  return data;
-}
-
-function save() {
-  if (!data) return false;
-
-  data.meta.updatedAt = new Date().toISOString();
-  return writeRaw("database", data);
-}
-
-function saveSoon() {
-  if (saveTimer !== null) clearTimeout(saveTimer);
-
-  saveTimer = setTimeout(() => {
-    saveTimer = null;
-    save();
-  }, 150);
-}
-
-function get(path, fallback = undefined) {
-  const keys = Array.isArray(path) ? path : String(path).split(".");
-  let value = load();
-
-  for (const key of keys) {
-    if (value == null || !(key in Object(value))) return fallback;
-    value = value[key];
-  }
-
-  return value === undefined ? fallback : value;
-}
-
-function set(path, value) {
-  const keys = Array.isArray(path) ? path : String(path).split(".");
-  if (!keys.length) return false;
-
-  let target = load();
-
-  for (const key of keys.slice(0, -1)) {
-    if (!isObject(target[key]) && !Array.isArray(target[key])) {
-      target[key] = {};
-    }
-    target = target[key];
-  }
-
-  target[keys[keys.length - 1]] = value;
-  saveSoon();
-  emit("change", { path: keys.join("."), value });
-
-  return true;
-}
-
-function update(path, updater) {
+/**
+ * 現在のデータを取得し、更新して保存する。
+ *
+ * @param {string} key 保存キー
+ * @param {Function} updater 更新処理
+ * @param {*} fallback データがない場合の初期値
+ * @returns {*} 更新後のデータ
+ */
+export function updateData(
+  key,
+  updater,
+  fallback = null
+) {
   if (typeof updater !== "function") {
-    throw new TypeError("updater は関数で指定してください");
+    throw new TypeError(
+      "updateData の updater には関数を指定してください。"
+    );
   }
 
-  const previous = get(path);
-  return set(path, updater(clone(previous)));
-}
+  const current = loadData(key, fallback);
+  const updated = updater(current);
 
-function list(path) {
-  const value = get(path, []);
-  return Array.isArray(value) ? value : [];
-}
+  if (updated === undefined) {
+    console.error(
+      `[COSMOS Store] 更新結果が undefined です: ${key}`
+    );
 
-function add(path, item) {
-  const items = list(path);
-  const entry = {
-    id: item?.id || makeId(),
-    createdAt: item?.createdAt || new Date().toISOString(),
-    ...item
-  };
-
-  items.push(entry);
-  set(path, items);
-
-  emit("add", { path, item: entry });
-  return entry;
-}
-
-function remove(path, id) {
-  const items = list(path);
-  const next = items.filter(item => item.id !== id);
-
-  if (next.length === items.length) return false;
-
-  set(path, next);
-  emit("remove", { path, id });
-  return true;
-}
-
-function replace(path, id, changes) {
-  const items = list(path);
-  const index = items.findIndex(item => item.id === id);
-
-  if (index < 0) return false;
-
-  items[index] = { ...items[index], ...changes, id };
-  set(path, items);
-
-  emit("update", { path, item: items[index] });
-  return items[index];
-}
-
-function clearAll() {
-  const confirmed = window.confirm(
-    "COSMOSの保存データをすべて初期化します。\n" +
-    "この操作は元に戻せません。事前にバックアップしてください。"
-  );
-
-  if (!confirmed) return false;
-
-  data = clone(DEFAULTS);
-  save();
-  emit("reset", null);
-
-  return true;
-}
-
-function exportData() {
-  const backup = JSON.stringify(load(), null, 2);
-  const blob = new Blob([backup], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-
-  link.href = url;
-  link.download = `one-for-all-cosmos-${new Date()
-    .toISOString().slice(0, 10)}.json`;
-
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-
-  return true;
-}
-
-async function importData(file) {
-  if (!file) throw new Error("ファイルが選択されていません");
-
-  const text = await file.text();
-  const imported = JSON.parse(text);
-
-  if (!isObject(imported)) {
-    throw new Error("バックアップの形式が正しくありません");
+    return current;
   }
 
-  const next = mergeDefaults(DEFAULTS, imported);
-
-  if (!Array.isArray(next.studyRecords) ||
-      !Array.isArray(next.subjects) ||
-      !isObject(next.calendar) ||
-      !isObject(next.economy)) {
-    throw new Error("必要なデータが不足しています");
+  if (!saveData(key, updated)) {
+    return current;
   }
 
-  const confirmed = window.confirm(
-    "バックアップを読み込みます。\n" +
-    "現在のデータは読み込んだ内容に置き換わります。"
-  );
-
-  if (!confirmed) return false;
-
-  data = next;
-  data.version = VERSION;
-
-  if (!save()) {
-    throw new Error("データを保存できませんでした");
-  }
-
-  emit("import", null);
-  return true;
+  return updated;
 }
 
-const listeners = new Map();
+/* =========================================================
+   6. データの削除
+   ========================================================= */
 
-function on(eventName, callback) {
-  if (typeof callback !== "function") return () => {};
+/**
+ * 指定した保存キーのデータを削除する。
+ *
+ * 全データを一括削除する機能ではない。
+ *
+ * @param {string} key 保存キー
+ * @returns {boolean} 削除できたか
+ */
+export function removeData(key) {
+  const storage = getStorage();
 
-  if (!listeners.has(eventName)) {
-    listeners.set(eventName, new Set());
-  }
-
-  listeners.get(eventName).add(callback);
-
-  return () => off(eventName, callback);
-}
-
-function off(eventName, callback) {
-  listeners.get(eventName)?.delete(callback);
-}
-
-function emit(eventName, detail) {
-  for (const callback of listeners.get(eventName) || []) {
-    try {
-      callback(detail, load());
-    } catch (error) {
-      console.error(`[COSMOS] イベント処理失敗: ${eventName}`, error);
-    }
+  if (!storage) {
+    return false;
   }
 
   try {
-    document.dispatchEvent(
-      new CustomEvent(`cosmos:data-${eventName}`, { detail })
+    storage.removeItem(key);
+    return true;
+  } catch (error) {
+    console.error(
+      `[COSMOS Store] 削除に失敗しました: ${key}`,
+      error
     );
-  } catch (_) {}
+
+    return false;
+  }
 }
 
-function getStudyMinutes(date = null) {
-  const records = list("studyRecords");
-  const target = date ? String(date).slice(0, 10) : null;
+/* =========================================================
+   7. 機能別の読み込み・保存
+   ========================================================= */
 
-  return records.reduce((total, record) => {
-    if (target && String(record.date || "").slice(0, 10) !== target) {
-      return total;
+export const store = Object.freeze({
+
+  /* 学習記録 */
+  study: {
+    load(fallback = {}) {
+      return loadData(STORE_KEYS.study, fallback);
+    },
+
+    save(data) {
+      return saveData(STORE_KEYS.study, data);
+    },
+
+    update(updater, fallback = {}) {
+      return updateData(
+        STORE_KEYS.study,
+        updater,
+        fallback
+      );
+    }
+  },
+
+  /* タイマー */
+  timer: {
+    load(fallback = {}) {
+      return loadData(STORE_KEYS.timer, fallback);
+    },
+
+    save(data) {
+      return saveData(STORE_KEYS.timer, data);
+    },
+
+    update(updater, fallback = {}) {
+      return updateData(
+        STORE_KEYS.timer,
+        updater,
+        fallback
+      );
+    }
+  },
+
+  /* カレンダー・予定・タスク */
+  calendar: {
+    load(fallback = {}) {
+      return loadData(STORE_KEYS.calendar, fallback);
+    },
+
+    save(data) {
+      return saveData(STORE_KEYS.calendar, data);
+    },
+
+    update(updater, fallback = {}) {
+      return updateData(
+        STORE_KEYS.calendar,
+        updater,
+        fallback
+      );
+    }
+  },
+
+  /* 目標マップ */
+  goals: {
+    load(fallback = {}) {
+      return loadData(STORE_KEYS.goals, fallback);
+    },
+
+    save(data) {
+      return saveData(STORE_KEYS.goals, data);
+    },
+
+    update(updater, fallback = {}) {
+      return updateData(
+        STORE_KEYS.goals,
+        updater,
+        fallback
+      );
+    }
+  },
+
+  /* ロケット・宇宙進行 */
+  rocket: {
+    load(fallback = {}) {
+      return loadData(STORE_KEYS.rocket, fallback);
+    },
+
+    save(data) {
+      return saveData(STORE_KEYS.rocket, data);
+    },
+
+    update(updater, fallback = {}) {
+      return updateData(
+        STORE_KEYS.rocket,
+        updater,
+        fallback
+      );
+    }
+  },
+
+  /* 経済 */
+  economy: {
+    load(fallback = {}) {
+      return loadData(STORE_KEYS.economy, fallback);
+    },
+
+    save(data) {
+      return saveData(STORE_KEYS.economy, data);
+    },
+
+    update(updater, fallback = {}) {
+      return updateData(
+        STORE_KEYS.economy,
+        updater,
+        fallback
+      );
+    }
+  },
+
+  /* カウントダウン */
+  countdown: {
+    load(fallback = []) {
+      return loadData(STORE_KEYS.countdown, fallback);
+    },
+
+    save(data) {
+      return saveData(STORE_KEYS.countdown, data);
+    },
+
+    update(updater, fallback = []) {
+      return updateData(
+        STORE_KEYS.countdown,
+        updater,
+        fallback
+      );
+    }
+  },
+
+  /* 設定 */
+  settings: {
+    load(fallback = {}) {
+      return loadData(STORE_KEYS.settings, fallback);
+    },
+
+    save(data) {
+      return saveData(STORE_KEYS.settings, data);
+    },
+
+    update(updater, fallback = {}) {
+      return updateData(
+        STORE_KEYS.settings,
+        updater,
+        fallback
+      );
+    }
+  }
+});
+
+/* =========================================================
+   8. 保存データの確認
+   ========================================================= */
+
+/**
+ * 各機能の保存データが存在するか確認する。
+ * データの変更や削除は行わない。
+ *
+ * @returns {Object} 保存状況
+ */
+export function getStorageStatus() {
+  const storage = getStorage();
+  const result = {};
+
+  for (const [name, key] of Object.entries(STORE_KEYS)) {
+    if (!storage) {
+      result[name] = false;
+      continue;
     }
 
-    return total + Math.max(0, Number(record.minutes) || 0);
-  }, 0);
-}
-
-function getSubjectMinutes(subjectId, since = null) {
-  return list("studyRecords").reduce((total, record) => {
-    if (record.subjectId !== subjectId) return total;
-    if (since && record.date < since) return total;
-
-    return total + Math.max(0, Number(record.minutes) || 0);
-  }, 0);
-}
-
-function addStudyRecord(record) {
-  const minutes = Number(record?.minutes);
-
-  if (!Number.isFinite(minutes) || minutes <= 0) {
-    throw new Error("学習時間は0より大きい数値にしてください");
+    try {
+      result[name] = storage.getItem(key) !== null;
+    } catch {
+      result[name] = false;
+    }
   }
 
-  const date = String(
-    record.date || new Date().toISOString().slice(0, 10)
-  ).slice(0, 10);
-
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    throw new Error("日付の形式が正しくありません");
-  }
-
-  return add("studyRecords", {
-    subjectId: record.subjectId || "",
-    itemId: record.itemId || "",
-    subject: record.subject || "",
-    item: record.item || "",
-    minutes,
-    date,
-    note: record.note || "",
-    source: record.source || "manual"
-  });
+  return result;
 }
 
-const Store = {
-  VERSION,
-  makeId,
-  clone,
-  load,
-  save,
-  saveSoon,
-  get,
-  set,
-  update,
-  list,
-  add,
-  remove,
-  replace,
-  on,
-  off,
-  emit,
-  getStudyMinutes,
-  getSubjectMinutes,
-  addStudyRecord,
-  exportData,
-  importData,
-  clearAll
-};
+/* =========================================================
+   9. 保存データの容量確認
+   ========================================================= */
 
-export { Store };
-export default Store;
+/**
+ * このアプリの保存データのおおよその文字数を調べる。
+ *
+ * @returns {number} 保存データの文字数
+ */
+export function getStorageUsage() {
+  const storage = getStorage();
+
+  if (!storage) {
+    return 0;
+  }
+
+  let total = 0;
+
+  for (const key of Object.values(STORE_KEYS)) {
+    try {
+      const value = storage.getItem(key);
+
+      if (value !== null) {
+        total += key.length + value.length;
+      }
+    } catch (error) {
+      console.warn(
+        `[COSMOS Store] 容量確認に失敗しました: ${key}`,
+        error
+      );
+    }
+  }
+
+  return total;
+}
+
+/* =========================================================
+   10. 既存コードとの共存
+   ========================================================= */
+
+/*
+  このファイルは保存処理の共通土台です。
+
+  重要：
+  ・既存データを自動削除しない。
+  ・既存の保存キーを変更しない。
+  ・保存データの形式を勝手に書き換えない。
+  ・既存の学習記録や予定を初期化しない。
+  ・日利や返済期限などの経済ルールはここでは処理しない。
+
+  各機能のファイルから必要な関数を import して使用します。
+
+  使用例：
+
+  import { store } from "./store.js";
+
+  const data = store.study.load({});
+
+  store.study.save(data);
+
+  経済データの例：
+
+  const economyData = store.economy.load({});
+
+  store.economy.save(economyData);
+
+  ※このファイルを作成しただけでは、既存機能との接続は
+    完了していません。次の実装で各ファイルを接続します。
+*/
