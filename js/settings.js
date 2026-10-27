@@ -10,17 +10,16 @@
    ・通知設定
    ・タイマー設定
    ・ホーム画面設定
+   ・カレンダー設定
+   ・プライバシー設定
    ・設定の初期化
+
+   保存先：js/store.js
    ========================================================= */
 
 "use strict";
 
-import {
-  loadObject,
-  saveData,
-} from "./storage.js";
-
-const SETTINGS_STORAGE_KEY = "oneforall-settings-v1";
+import { store } from "./store.js";
 
 /* ---------------------------------------------------------
    初期設定
@@ -91,7 +90,10 @@ function clampNumber(value, min, max, fallback) {
     return fallback;
   }
 
-  return Math.min(max, Math.max(min, Math.floor(number)));
+  return Math.min(
+    max,
+    Math.max(min, Math.floor(number))
+  );
 }
 
 function normalizeTime(value, fallback) {
@@ -294,10 +296,8 @@ function normalizeSettings(input) {
     },
 
     privacy: {
-      /*
-       * 学習記録の共有は初期状態で無効。
-       * この設定だけで外部への送信処理が追加されることはない。
-       */
+      // 学習記録の共有は初期状態で無効。
+      // この設定だけで外部送信処理は追加されない。
       shareStudyRecords:
         typeof privacy.shareStudyRecords === "boolean"
           ? privacy.shareStudyRecords
@@ -314,15 +314,24 @@ function normalizeSettings(input) {
  * 現在の設定を取得する
  */
 export function getSettings() {
-  const stored = loadObject(SETTINGS_STORAGE_KEY);
-  return normalizeSettings(stored);
+  try {
+    const stored = store.settings.load(null);
+    return normalizeSettings(stored);
+  } catch (error) {
+    console.error(
+      "[Settings] 設定の読み込みに失敗しました:",
+      error
+    );
+
+    return normalizeSettings(DEFAULT_SETTINGS);
+  }
 }
 
 /**
  * 指定した設定項目を取得する
  *
  * 使用例：
- * getSetting("study.dailyGoalMinutes")
+ * getSetting("study.dailyGoalMinutes");
  */
 export function getSetting(path) {
   if (typeof path !== "string" || !path.trim()) {
@@ -365,14 +374,33 @@ export function saveSettings(settings) {
 
   const normalized = normalizeSettings(settings);
 
-  saveData(SETTINGS_STORAGE_KEY, normalized);
+  try {
+    const result = store.settings.save(normalized);
 
-  notifySettingsChange();
+    if (result === false) {
+      return {
+        success: false,
+        error: "設定を保存できませんでした。",
+      };
+    }
 
-  return {
-    success: true,
-    settings: normalized,
-  };
+    notifySettingsChange();
+
+    return {
+      success: true,
+      settings: normalized,
+    };
+  } catch (error) {
+    console.error(
+      "[Settings] 設定の保存に失敗しました:",
+      error
+    );
+
+    return {
+      success: false,
+      error: "設定の保存に失敗しました。",
+    };
+  }
 }
 
 /**
@@ -391,8 +419,15 @@ export function setSetting(path, value) {
   }
 
   const keys = path.split(".");
-  const settings = getSettings();
 
+  if (keys.some((key) => !key)) {
+    return {
+      success: false,
+      error: "設定項目の指定が正しくありません。",
+    };
+  }
+
+  const settings = getSettings();
   let current = settings;
 
   for (let index = 0; index < keys.length - 1; index += 1) {
@@ -426,12 +461,14 @@ export function setSetting(path, value) {
 
   const result = saveSettings(settings);
 
-  return result.success
-    ? {
-        success: true,
-        value: getSetting(path),
-      }
-    : result;
+  if (!result.success) {
+    return result;
+  }
+
+  return {
+    success: true,
+    value: getSetting(path),
+  };
 }
 
 /* ---------------------------------------------------------
@@ -513,6 +550,58 @@ export function setMinimumActionMinutes(minutes) {
 }
 
 /* ---------------------------------------------------------
+   タイマー設定
+   --------------------------------------------------------- */
+
+/**
+ * タイマーの初期時間を変更する
+ */
+export function setDefaultTimerMinutes(minutes) {
+  const value = Number(minutes);
+
+  if (
+    !Number.isInteger(value) ||
+    value < 1 ||
+    value > 180
+  ) {
+    return {
+      success: false,
+      error: "タイマーは1〜180分で設定してください。",
+    };
+  }
+
+  return setSetting("study.defaultTimerMinutes", value);
+}
+
+/**
+ * タイマーの自動保存を変更する
+ */
+export function setAutoSaveTimer(enabled) {
+  if (typeof enabled !== "boolean") {
+    return {
+      success: false,
+      error: "trueまたはfalseを指定してください。",
+    };
+  }
+
+  return setSetting("study.autoSaveTimer", enabled);
+}
+
+/**
+ * タイマーの秒表示を変更する
+ */
+export function setShowTimerSeconds(enabled) {
+  if (typeof enabled !== "boolean") {
+    return {
+      success: false,
+      error: "trueまたはfalseを指定してください。",
+    };
+  }
+
+  return setSetting("study.showTimerSeconds", enabled);
+}
+
+/* ---------------------------------------------------------
    表示設定
    --------------------------------------------------------- */
 
@@ -549,6 +638,34 @@ export function setAnimationsEnabled(enabled) {
 }
 
 /**
+ * コンパクト表示を変更する
+ */
+export function setCompactMode(enabled) {
+  if (typeof enabled !== "boolean") {
+    return {
+      success: false,
+      error: "trueまたはfalseを指定してください。",
+    };
+  }
+
+  return setSetting("appearance.compactMode", enabled);
+}
+
+/**
+ * 背景の星の表示を変更する
+ */
+export function setStarsVisible(enabled) {
+  if (typeof enabled !== "boolean") {
+    return {
+      success: false,
+      error: "trueまたはfalseを指定してください。",
+    };
+  }
+
+  return setSetting("appearance.showStars", enabled);
+}
+
+/**
  * ホーム画面のカード表示を変更する
  */
 export function setHomeCardVisibility(cardName, visible) {
@@ -579,15 +696,66 @@ export function setHomeCardVisibility(cardName, visible) {
 }
 
 /* ---------------------------------------------------------
+   カレンダー設定
+   --------------------------------------------------------- */
+
+/**
+ * 週の開始曜日を変更する
+ *
+ * true：月曜日
+ * false：日曜日
+ */
+export function setWeekStartsOnMonday(enabled) {
+  if (typeof enabled !== "boolean") {
+    return {
+      success: false,
+      error: "trueまたはfalseを指定してください。",
+    };
+  }
+
+  return setSetting(
+    "calendar.weekStartsOnMonday",
+    enabled
+  );
+}
+
+/**
+ * カレンダーの初期表示を変更する
+ */
+export function setCalendarDefaultView(view) {
+  if (!["month", "week", "day"].includes(view)) {
+    return {
+      success: false,
+      error: "表示方法はmonth・week・dayから選択してください。",
+    };
+  }
+
+  return setSetting("calendar.defaultView", view);
+}
+
+/* ---------------------------------------------------------
    通知設定
    --------------------------------------------------------- */
 
 /**
- * 学習リマインダーの設定を変更する
+ * 通知全体の有効・無効を変更する
  *
- * 注意：
- * ここでは設定の保存のみ行う。
- * 実際の通知処理は別途実装する必要がある。
+ * この関数は設定の保存のみを行う。
+ * 実際の通知処理は別途接続する必要がある。
+ */
+export function setNotificationsEnabled(enabled) {
+  if (typeof enabled !== "boolean") {
+    return {
+      success: false,
+      error: "trueまたはfalseを指定してください。",
+    };
+  }
+
+  return setSetting("notifications.enabled", enabled);
+}
+
+/**
+ * 学習リマインダーの設定を変更する
  */
 export function setStudyReminder(enabled, time) {
   if (typeof enabled !== "boolean") {
@@ -602,14 +770,17 @@ export function setStudyReminder(enabled, time) {
   settings.notifications.studyReminder = enabled;
 
   if (time !== undefined) {
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(time))) {
+    const normalizedTime = normalizeTime(time, null);
+
+    if (normalizedTime === null) {
       return {
         success: false,
         error: "通知時刻はHH:MM形式で指定してください。",
       };
     }
 
-    settings.notifications.studyReminderTime = time;
+    settings.notifications.studyReminderTime =
+      normalizedTime;
   }
 
   return saveSettings(settings);
@@ -651,6 +822,30 @@ export function setEventReminder(enabled, daysBefore) {
 }
 
 /* ---------------------------------------------------------
+   プライバシー設定
+   --------------------------------------------------------- */
+
+/**
+ * 学習記録の共有設定を変更する
+ *
+ * この設定は保存されるだけであり、
+ * 外部への送信処理を実行するものではない。
+ */
+export function setStudyRecordSharing(enabled) {
+  if (typeof enabled !== "boolean") {
+    return {
+      success: false,
+      error: "trueまたはfalseを指定してください。",
+    };
+  }
+
+  return setSetting(
+    "privacy.shareStudyRecords",
+    enabled
+  );
+}
+
+/* ---------------------------------------------------------
    設定の初期化
    --------------------------------------------------------- */
 
@@ -660,16 +855,9 @@ export function setEventReminder(enabled, daysBefore) {
  * 学習記録、カレンダー、目標、経済データは削除しない。
  */
 export function resetSettings() {
-  const defaults = normalizeSettings(DEFAULT_SETTINGS);
-
-  saveData(SETTINGS_STORAGE_KEY, defaults);
-
-  notifySettingsChange();
-
-  return {
-    success: true,
-    settings: defaults,
-  };
+  return saveSettings(
+    normalizeSettings(DEFAULT_SETTINGS)
+  );
 }
 
 /* ---------------------------------------------------------
@@ -677,7 +865,11 @@ export function resetSettings() {
    --------------------------------------------------------- */
 
 function notifySettingsChange() {
-  if (typeof window === "undefined") {
+  if (
+    typeof window === "undefined" ||
+    typeof window.dispatchEvent !== "function" ||
+    typeof CustomEvent === "undefined"
+  ) {
     return;
   }
 
