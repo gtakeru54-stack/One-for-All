@@ -1,8 +1,8 @@
 
 /* =========================================================
-   One for All - COSMOS
+   ONE FOR ALL — COSMOS
    js/ui.js
-   画面遷移・メニュー・ダイアログ・学習記録・行動表・目標マップ
+   画面操作・学習記録・タイマー・設定・保存
    ========================================================= */
 
 "use strict";
@@ -14,1523 +14,919 @@
 
   const STORAGE_KEY = "ofa-cosmos-data-v1";
 
-  const today = () => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const DEFAULTS = {
+    settings: {
+      dailyGoal: 120,
+      weeklyGoal: 840,
+      minimumAction: 5,
+      animations: true,
+      theme: "cosmos",
+      shortcuts: [
+        "home",
+        "study",
+        "calendar",
+        "statistics",
+        "goals"
+      ]
+    },
+    subjects: [
+      { id: "math", name: "数学", color: "#69a7ff" },
+      { id: "english", name: "英語", color: "#b69aff" },
+      { id: "japanese", name: "国語", color: "#ff8fc7" },
+      { id: "science", name: "理科", color: "#76e3b0" },
+      { id: "social", name: "社会", color: "#ffd780" }
+    ],
+    studyItems: [],
+    studyRecords: [],
+    events: [],
+    tasks: [],
+    goals: [],
+    goalNodes: [],
+    habits: [],
+    countdowns: [],
+    timetable: [],
+    notifications: [],
+    economy: {
+      balance: 0,
+      transactions: [],
+      loans: []
+    },
+    rocket: {
+      name: "COSMOS",
+      level: 1,
+      exp: 0,
+      parts: [],
+      missions: [],
+      explorations: []
+    }
   };
 
-  const makeId = () =>
-    `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  let data = loadData();
+  let timer = {
+    running: false,
+    startedAt: 0,
+    accumulated: 0,
+    subject: "",
+    item: "",
+    interval: null
+  };
 
-  const escapeHTML = value =>
-    String(value ?? "").replace(/[&<>"']/g, char => ({
+  let dialogResolve = null;
+  let selectedDate = dateKey(new Date());
+  let calendarMonth = new Date();
+  let currentView = "home";
+
+  function clone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function loadData() {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (!saved) return clone(DEFAULTS);
+
+      const parsed = JSON.parse(saved);
+
+      return {
+        ...clone(DEFAULTS),
+        ...parsed,
+        settings: {
+          ...clone(DEFAULTS.settings),
+          ...(parsed.settings || {})
+        },
+        economy: {
+          ...clone(DEFAULTS.economy),
+          ...(parsed.economy || {})
+        },
+        rocket: {
+          ...clone(DEFAULTS.rocket),
+          ...(parsed.rocket || {})
+        }
+      };
+    } catch (error) {
+      console.error("保存データを読み込めませんでした:", error);
+      return clone(DEFAULTS);
+    }
+  }
+
+  function saveData() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      return true;
+    } catch (error) {
+      console.error("データを保存できませんでした:", error);
+      showMessage("保存できませんでした。空き容量を確認してください。");
+      return false;
+    }
+  }
+
+  function uid(prefix = "item") {
+    return `${prefix}-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+  }
+
+  function dateKey(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  function todayKey() {
+    return dateKey(new Date());
+  }
+
+  function parseDate(value) {
+    const [y, m, d] = value.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  }
+
+  function escapeHTML(value) {
+    return String(value ?? "").replace(/[&<>"']/g, char => ({
       "&": "&amp;",
       "<": "&lt;",
       ">": "&gt;",
       '"': "&quot;",
       "'": "&#39;"
     })[char]);
-
-  const defaultData = () => ({
-    subjects: [
-      { id: "math", name: "数学", items: ["問題演習", "復習"] },
-      { id: "english", name: "英語", items: ["英単語", "長文読解"] }
-    ],
-    records: [],
-    events: [],
-    tasks: [],
-    timetable: [],
-    goals: [
-      {
-        id: "goal-root",
-        title: "最終目標",
-        detail: "自分の目標を設定する",
-        parentId: null,
-        completed: false
-      }
-    ],
-    dailyGoal: 120,
-    timer: {
-      running: false,
-      start: null,
-      subject: "",
-      item: ""
-    },
-    economy: {
-      balance: 0,
-      loans: [],
-      transactions: []
-    },
-    countdowns: [],
-    settings: {
-      theme: "cosmos",
-      animations: true
-    }
-  });
-
-  function loadData() {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (!saved) return defaultData();
-
-      const parsed = JSON.parse(saved);
-      const defaults = defaultData();
-
-      return {
-        ...defaults,
-        ...parsed,
-        subjects: Array.isArray(parsed.subjects) ? parsed.subjects : defaults.subjects,
-        records: Array.isArray(parsed.records) ? parsed.records : [],
-        events: Array.isArray(parsed.events) ? parsed.events : [],
-        tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
-        timetable: Array.isArray(parsed.timetable) ? parsed.timetable : [],
-        goals: Array.isArray(parsed.goals) ? parsed.goals : defaults.goals,
-        countdowns: Array.isArray(parsed.countdowns) ? parsed.countdowns : [],
-        economy: { ...defaults.economy, ...(parsed.economy || {}) },
-        settings: { ...defaults.settings, ...(parsed.settings || {}) }
-      };
-    } catch (error) {
-      console.error("保存データを読み込めませんでした。", error);
-      return defaultData();
-    }
   }
 
-  let data = loadData();
-  let currentView = "home";
-  let selectedDate = today();
-  let timerInterval = null;
-  let timerStartedAt = null;
-  let dialogSubmit = null;
+  function formatMinutes(minutes) {
+    const total = Math.max(0, Math.floor(minutes));
+    const hours = Math.floor(total / 60);
+    const mins = total % 60;
 
-  function saveData() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch (error) {
-      console.error("データを保存できませんでした。", error);
-      showMessage("保存できませんでした。空き容量を確認してください。");
-    }
+    if (hours && mins) return `${hours}時間${mins}分`;
+    if (hours) return `${hours}時間`;
+    return `${mins}分`;
+  }
+
+  function formatClock(seconds) {
+    const total = Math.max(0, Math.floor(seconds));
+    const h = String(Math.floor(total / 3600)).padStart(2, "0");
+    const m = String(Math.floor(total / 60) % 60).padStart(2, "0");
+    const s = String(total % 60).padStart(2, "0");
+    return `${h}:${m}:${s}`;
   }
 
   function showMessage(message) {
     const toast = $("#cosmos-message");
     if (!toast) {
-      console.log(message);
+      console.info(message);
       return;
     }
 
     toast.textContent = message;
-    toast.classList.add("show");
-    toast.setAttribute("aria-live", "polite");
+    toast.classList.add("is-visible");
+    toast.hidden = false;
 
     clearTimeout(showMessage.timeout);
     showMessage.timeout = setTimeout(() => {
-      toast.classList.remove("show");
+      toast.classList.remove("is-visible");
+      toast.hidden = true;
     }, 2800);
-  }
-
-  /* ---------------------------------------------------------
-     画面遷移
-     --------------------------------------------------------- */
-
-  function closeMenu() {
-    const menu = $("#side-menu");
-    const backdrop = $("#menu-backdrop");
-    const openButton = $("#menu-open");
-
-    menu?.classList.remove("open", "active");
-    menu?.setAttribute("aria-hidden", "true");
-
-    backdrop?.classList.remove("open", "active", "visible");
-    backdrop?.setAttribute("aria-hidden", "true");
-
-    openButton?.setAttribute("aria-expanded", "false");
-    document.body.classList.remove("menu-open");
   }
 
   function openMenu() {
     const menu = $("#side-menu");
     const backdrop = $("#menu-backdrop");
-    const openButton = $("#menu-open");
 
-    menu?.classList.add("open");
-    menu?.classList.add("active");
-    menu?.setAttribute("aria-hidden", "false");
+    if (menu) {
+      menu.hidden = false;
+      menu.classList.add("is-open");
+      menu.setAttribute("aria-hidden", "false");
+    }
 
-    backdrop?.classList.add("open", "active", "visible");
-    backdrop?.setAttribute("aria-hidden", "false");
+    if (backdrop) {
+      backdrop.hidden = false;
+      backdrop.classList.add("is-visible");
+    }
 
-    openButton?.setAttribute("aria-expanded", "true");
-    document.body.classList.add("menu-open");
+    $("#menu-open")?.setAttribute("aria-expanded", "true");
   }
 
-  function showView(viewName) {
-    const requested = String(viewName || "home");
-    const panel = $(`#view-${CSS.escape(requested)}`);
+  function closeMenu() {
+    const menu = $("#side-menu");
+    const backdrop = $("#menu-backdrop");
 
-    if (!panel) {
-      showMessage("この画面はまだ準備されていません。");
-      closeMenu();
+    menu?.classList.remove("is-open");
+    menu?.setAttribute("aria-hidden", "true");
+    backdrop?.classList.remove("is-visible");
+    $("#menu-open")?.setAttribute("aria-expanded", "false");
+
+    if (menu) menu.hidden = true;
+    if (backdrop) backdrop.hidden = true;
+  }
+
+  function showView(name) {
+    const target = $(`#view-${CSS.escape(name)}`);
+    if (!target) {
+      showMessage("この画面はまだ用意されていません。");
       return;
     }
 
-    currentView = requested;
+    currentView = name;
 
-    $$(".page-section, [data-view-panel]").forEach(section => {
-      const active =
-        section.id === `view-${requested}` ||
-        section.dataset.viewPanel === requested;
-
-      section.hidden = !active;
+    $$(".page-section").forEach(section => {
+      const active = section === target;
       section.classList.toggle("active", active);
+      section.hidden = !active;
       section.setAttribute("aria-hidden", String(!active));
     });
 
     $$("[data-view]").forEach(button => {
-      const active = button.dataset.view === requested;
+      const active = button.dataset.view === name;
       button.classList.toggle("active", active);
-
-      if (button.tagName === "BUTTON") {
-        button.setAttribute("aria-current", active ? "page" : "false");
-      }
+      button.setAttribute("aria-current", active ? "page" : "false");
     });
 
     closeMenu();
 
-    if (requested === "schedule") renderSchedule();
-    if (requested === "study") renderStudy();
-    if (requested === "goals") renderGoals();
-    if (requested === "home") renderHome();
-    if (requested === "calendar") renderCalendar();
+    if (name === "home") renderHome();
+    if (name === "study") renderStudy();
+    if (name === "calendar") renderCalendar();
+    if (name === "statistics") renderStatistics();
+    if (name === "goals") renderGoals();
+    if (name === "rocket") renderRocket();
+    if (name === "economy") renderEconomy();
+    if (name === "countdown") renderCountdown();
+    if (name === "notifications") renderNotifications();
+    if (name === "settings") renderSettings();
 
-    window.scrollTo({ top: 0, behavior: "auto" });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function ensureScheduleView() {
-    let view = $("#view-schedule");
-    if (view) return view;
-
-    const main = $("#app-main");
-    if (!main) return null;
-
-    view = document.createElement("section");
-    view.id = "view-schedule";
-    view.className = "page-section";
-    view.dataset.viewPanel = "schedule";
-    view.hidden = true;
-
-    view.innerHTML = `
-      <div class="section-heading">
-        <p class="eyebrow">DAILY PLAN & ACTUAL</p>
-        <h2>予定表・行動表</h2>
-        <p>予定と、実際に行ったことを1日ごとに確認します。</p>
-      </div>
-
-      <div class="schedule-date-controls">
-        <button type="button" data-action="schedule-prev">前日</button>
-        <label>
-          <span>表示する日付</span>
-          <input id="schedule-date" type="date" value="${today()}">
-        </label>
-        <button type="button" data-action="schedule-today">今日</button>
-        <button type="button" data-action="schedule-next">翌日</button>
-      </div>
-
-      <div class="schedule-summary">
-        <div>
-          <span>予定時間</span>
-          <strong id="schedule-planned-total">0分</strong>
-        </div>
-        <div>
-          <span>実績時間</span>
-          <strong id="schedule-actual-total">0分</strong>
-        </div>
-      </div>
-
-      <div class="schedule-actions">
-        <button type="button" data-action="add-event">予定を追加</button>
-        <button type="button" data-action="add-actual">行動実績を追加</button>
-      </div>
-
-      <div id="schedule-timeline" class="schedule-timeline"></div>
-    `;
-
-    main.appendChild(view);
-
-    const menu = $("#side-menu");
-    if (menu && !menu.querySelector('[data-view="schedule"]')) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.dataset.view = "schedule";
-      button.textContent = "予定表・行動表";
-      menu.appendChild(button);
-    }
-
-    const bottom = $("#bottom-navigation");
-    if (bottom && !bottom.querySelector('[data-view="schedule"]')) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.dataset.view = "schedule";
-      button.dataset.shortcut = "schedule";
-      button.textContent = "行動表";
-      bottom.appendChild(button);
-    }
-
-    return view;
-  }
-
-  /* ---------------------------------------------------------
-     ダイアログ
-     --------------------------------------------------------- */
-
-  function closeDialog() {
-    const dialog = $("#cosmos-dialog");
-
-    if (dialog?.open && typeof dialog.close === "function") {
-      dialog.close();
-    } else if (dialog) {
-      dialog.removeAttribute("open");
-      dialog.hidden = true;
-      dialog.style.display = "none";
-    }
-
-    dialogSubmit = null;
-  }
-
-  function openDialog(title, fields, onSubmit) {
-    const dialog = $("#cosmos-dialog");
+  function dialog(title, content, confirmText = "保存") {
+    const element = $("#cosmos-dialog");
     const titleElement = $("#cosmos-dialog-title");
-    const content = $("#cosmos-dialog-content");
-    const form = $("#cosmos-dialog-form");
-    const confirm = $("#cosmos-dialog-confirm");
+    const contentElement = $("#cosmos-dialog-content");
+    const confirmButton = $("#cosmos-dialog-confirm");
 
-    if (!dialog || !content || !form) {
-      showMessage("ダイアログのHTMLが見つかりません。");
-      return;
+    if (!element || !contentElement || !confirmButton) {
+      return Promise.resolve(null);
     }
 
-    titleElement && (titleElement.textContent = title);
-    content.replaceChildren();
+    titleElement.textContent = title;
+    contentElement.innerHTML = content;
+    confirmButton.textContent = confirmText;
+    confirmButton.disabled = false;
 
-    fields.forEach(field => {
-      const wrapper = document.createElement("label");
-      wrapper.className = "dialog-field";
-
-      const label = document.createElement("span");
-      label.textContent = field.label;
-      wrapper.appendChild(label);
-
-      let input;
-
-      if (field.type === "textarea") {
-        input = document.createElement("textarea");
-        input.rows = 3;
-      } else if (field.type === "select") {
-        input = document.createElement("select");
-        (field.options || []).forEach(option => {
-          const element = document.createElement("option");
-          element.value = option.value;
-          element.textContent = option.label;
-          input.appendChild(element);
-        });
-      } else {
-        input = document.createElement("input");
-        input.type = field.type || "text";
-      }
-
-      input.name = field.name;
-      input.required = Boolean(field.required);
-
-      if (field.value !== undefined) input.value = field.value;
-      if (field.placeholder) input.placeholder = field.placeholder;
-      if (field.min !== undefined) input.min = field.min;
-      if (field.max !== undefined) input.max = field.max;
-      if (field.step !== undefined) input.step = field.step;
-
-      wrapper.appendChild(input);
-      content.appendChild(wrapper);
-    });
-
-    dialogSubmit = onSubmit;
-
-    if (confirm) {
-      confirm.type = "submit";
-      confirm.textContent = "保存";
-    }
-
-    let cancel = $("#cosmos-dialog-cancel");
-
-    if (!cancel) {
-      cancel = document.createElement("button");
-      cancel.id = "cosmos-dialog-cancel";
-      cancel.type = "button";
-      cancel.textContent = "キャンセル";
-      cancel.className = "dialog-cancel";
-      confirm?.parentElement?.appendChild(cancel);
-    }
-
-    cancel.type = "button";
-    cancel.onclick = event => {
-      event.preventDefault();
-      closeDialog();
-    };
-
-    if (typeof dialog.showModal === "function") {
-      if (!dialog.open) dialog.showModal();
+    if (typeof element.showModal === "function") {
+      element.showModal();
     } else {
-      dialog.hidden = false;
-      dialog.style.display = "block";
-      dialog.setAttribute("open", "");
+      element.setAttribute("open", "");
     }
-  }
 
-  function getDialogValues() {
-    const content = $("#cosmos-dialog-content");
-    const values = {};
-
-    $$("input[name], textarea[name], select[name]", content).forEach(input => {
-      values[input.name] = input.value.trim();
+    return new Promise(resolve => {
+      dialogResolve = resolve;
     });
-
-    return values;
   }
 
-  function handleDialogSubmit(event) {
-    if (event) event.preventDefault();
+  function closeDialog(result = null) {
+    const element = $("#cosmos-dialog");
+    if (!element) return;
 
-    const form = $("#cosmos-dialog-form");
-    if (form && !form.reportValidity()) return;
+    if (typeof element.close === "function" && element.open) {
+      element.close();
+    } else {
+      element.removeAttribute("open");
+    }
 
-    const callback = dialogSubmit;
-    const values = getDialogValues();
-
-    closeDialog();
-
-    if (typeof callback === "function") {
-      callback(values);
+    if (dialogResolve) {
+      const resolve = dialogResolve;
+      dialogResolve = null;
+      resolve(result);
     }
   }
 
-  /* ---------------------------------------------------------
-     学習記録
-     --------------------------------------------------------- */
-
-  function getSubjectName(subjectId) {
-    return data.subjects.find(subject => subject.id === subjectId)?.name
-      || subjectId
-      || "未分類";
-  }
-
-  function getMinutesForDate(date) {
-    return data.records
-      .filter(record => record.date === date)
-      .reduce((total, record) => total + Number(record.minutes || 0), 0);
+  function dialogValue(name) {
+    const field = $(`[name="${name}"]`, $("#cosmos-dialog-content"));
+    return field ? field.value.trim() : "";
   }
 
   function addStudyRecord(record) {
-    const minutes = Number(record.minutes);
+    const minutes = Math.floor(Number(record.minutes));
 
     if (!Number.isFinite(minutes) || minutes <= 0) {
-      showMessage("勉強時間は1分以上で入力してください。");
+      showMessage("学習時間は1分以上にしてください。");
       return false;
     }
 
-    const date = record.date || today();
+    const subject = String(record.subject || "").trim();
+    const item = String(record.item || "").trim();
 
-    data.records.push({
-      id: makeId(),
+    if (!subject) {
+      showMessage("教科を入力してください。");
+      return false;
+    }
+
+    const date = record.date || todayKey();
+
+    const savedRecord = {
+      id: uid("study"),
       date,
-      subjectId: record.subjectId || "",
-      subject: record.subject || getSubjectName(record.subjectId),
-      item: record.item || "学習",
-      minutes: Math.round(minutes),
-      note: record.note || "",
-      startTime: record.startTime || "",
-      endTime: record.endTime || "",
-      source: record.source || "manual",
+      subject,
+      item,
+      minutes,
+      note: String(record.note || "").trim(),
       createdAt: new Date().toISOString()
-    });
+    };
 
+    data.studyRecords.push(savedRecord);
+
+    const existingSubject = data.subjects.find(
+      entry => entry.name === subject
+    );
+
+    if (!existingSubject) {
+      data.subjects.push({
+        id: uid("subject"),
+        name: subject,
+        color: colorForIndex(data.subjects.length)
+      });
+    }
+
+    if (item && !data.studyItems.some(entry =>
+      entry.subject === subject && entry.name === item
+    )) {
+      data.studyItems.push({
+        id: uid("study-item"),
+        subject,
+        name: item
+      });
+    }
+
+    awardStudyExp(minutes);
     saveData();
-    renderStudy();
-    renderSchedule();
-    renderHome();
+    renderAll();
 
-    showMessage("学習記録を保存しました。行動表にも反映しました。");
+    showMessage("学習記録を保存しました。行動実績にも反映しました。");
     return true;
   }
 
-  function renderStudy() {
-    const list = $("#study-record-list");
-
-    if (list) {
-      const records = [...data.records].sort((a, b) =>
-        `${b.date}${b.startTime || ""}`.localeCompare(`${a.date}${a.startTime || ""}`)
-      );
-
-      list.innerHTML = records.length
-        ? records.map(record => `
-            <article class="study-record-card">
-              <div>
-                <strong>${escapeHTML(record.subject || getSubjectName(record.subjectId))}</strong>
-                <p>${escapeHTML(record.item || "学習")}</p>
-                <small>${escapeHTML(record.date)} ${escapeHTML(record.startTime || "")}</small>
-                ${record.note ? `<p>${escapeHTML(record.note)}</p>` : ""}
-              </div>
-              <strong>${Number(record.minutes)}分</strong>
-              <button type="button" data-action="delete-record" data-id="${escapeHTML(record.id)}">削除</button>
-            </article>
-          `).join("")
-        : "<p>まだ学習記録がありません。</p>";
-    }
-
-    const todayTotal = getMinutesForDate(today());
-    const todayTime = $("#home-today-time");
-    const statsTime = $("#stats-today-time");
-
-    if (todayTime) todayTime.textContent = formatMinutes(todayTotal);
-    if (statsTime) statsTime.textContent = formatMinutes(todayTotal);
-
-    const goal = Math.max(1, Number(data.dailyGoal || 120));
-    const percent = Math.min(100, Math.round(todayTotal / goal * 100));
-
-    const progress = $("#home-goal-progress");
-    if (progress) {
-      progress.style.width = `${percent}%`;
-      progress.setAttribute("aria-valuenow", String(percent));
-    }
-
-    const goalText = $("#home-goal-percent");
-    if (goalText) goalText.textContent = `${percent}%`;
-
-    const statsProgress = $("#stats-today-progress");
-    if (statsProgress) {
-      statsProgress.style.width = `${percent}%`;
-      statsProgress.setAttribute("aria-valuenow", String(percent));
-    }
-  }
-
-  function formatMinutes(minutes) {
-    const value = Math.max(0, Math.round(Number(minutes) || 0));
-    const hours = Math.floor(value / 60);
-    const mins = value % 60;
-
-    return hours ? `${hours}時間${mins}分` : `${mins}分`;
-  }
-
-  function addSubject() {
-    openDialog("教科を追加", [
-      { name: "name", label: "教科名", required: true, placeholder: "例：理科" }
-    ], values => {
-      if (data.subjects.some(subject => subject.name === values.name)) {
-        showMessage("同じ名前の教科がすでにあります。");
-        return;
-      }
-
-      data.subjects.push({
-        id: makeId(),
-        name: values.name,
-        items: []
-      });
-
-      saveData();
-      renderStudy();
-      showMessage("教科を追加しました。");
-    });
-  }
-
-  function addStudyItem() {
-    if (!data.subjects.length) {
-      showMessage("先に教科を追加してください。");
-      return;
-    }
-
-    openDialog("学習項目を追加", [
-      {
-        name: "subjectId",
-        label: "教科",
-        type: "select",
-        required: true,
-        options: data.subjects.map(subject => ({
-          value: subject.id,
-          label: subject.name
-        }))
-      },
-      { name: "item", label: "学習項目", required: true, placeholder: "例：二次関数" }
-    ], values => {
-      const subject = data.subjects.find(item => item.id === values.subjectId);
-      if (!subject) return;
-
-      subject.items ||= [];
-      subject.items.push(values.item);
-
-      saveData();
-      renderStudy();
-      showMessage("学習項目を追加しました。");
-    });
-  }
-
-  function addManualRecord() {
-    const subjectOptions = [
-      { value: "", label: "未分類" },
-      ...data.subjects.map(subject => ({
-        value: subject.id,
-        label: subject.name
-      }))
+  function colorForIndex(index) {
+    const colors = [
+      "#69a7ff",
+      "#b69aff",
+      "#ff8fc7",
+      "#76e3b0",
+      "#ffd780",
+      "#66e0e8",
+      "#ff8295"
     ];
 
-    openDialog("学習実績を追加", [
-      {
-        name: "date",
-        label: "学習した日",
-        type: "date",
-        value: today(),
-        required: true
-      },
-      {
-        name: "subjectId",
-        label: "教科",
-        type: "select",
-        options: subjectOptions
-      },
-      {
-        name: "item",
-        label: "何をしたか",
-        required: true,
-        placeholder: "例：英単語を50個復習"
-      },
-      {
-        name: "minutes",
-        label: "勉強時間（分）",
-        type: "number",
-        min: "1",
-        step: "1",
-        required: true
-      },
-      {
-        name: "note",
-        label: "メモ",
-        type: "textarea"
-      }
-    ], values => {
-      addStudyRecord({
-        ...values,
-        subject: getSubjectName(values.subjectId),
-        source: "manual"
-      });
-    });
+    return colors[index % colors.length];
+  }
+
+  function totalMinutes(records) {
+    return records.reduce((sum, record) =>
+      sum + Math.max(0, Number(record.minutes) || 0), 0);
+  }
+
+  function recordsForDate(date) {
+    return data.studyRecords.filter(record => record.date === date);
+  }
+
+  function totalForDate(date) {
+    return totalMinutes(recordsForDate(date));
+  }
+
+  function totalForRange(start, end) {
+    return totalMinutes(data.studyRecords.filter(record =>
+      record.date >= start && record.date <= end
+    ));
   }
 
   function startTimer() {
-    if (data.timer.running) {
-      showMessage("タイマーはすでに動作中です。");
-      return;
-    }
+    if (timer.running) return;
 
-    const subjectOptions = [
-      { value: "", label: "未分類" },
-      ...data.subjects.map(subject => ({
-        value: subject.id,
-        label: subject.name
-      }))
-    ];
+    timer.running = true;
+    timer.startedAt = Date.now();
+    timer.interval = setInterval(updateTimerDisplay, 250);
 
-    openDialog("学習タイマーを開始", [
-      {
-        name: "subjectId",
-        label: "教科",
-        type: "select",
-        options: subjectOptions
-      },
-      {
-        name: "item",
-        label: "学習内容",
-        required: true,
-        placeholder: "例：数学の問題演習"
-      }
-    ], values => {
-      timerStartedAt = Date.now();
+    $("#study-timer-status") &&
+      ($("#study-timer-status").textContent = "学習中");
 
-      data.timer = {
-        running: true,
-        start: new Date(timerStartedAt).toISOString(),
-        subjectId: values.subjectId,
-        subject: getSubjectName(values.subjectId),
-        item: values.item
-      };
-
-      saveData();
-      startTimerDisplay();
-      showMessage("タイマーを開始しました。");
-    });
-  }
-
-  function startTimerDisplay() {
-    clearInterval(timerInterval);
-
-    const display = $("#study-timer-display");
-    const status = $("#study-timer-status");
-
-    const update = () => {
-      if (!data.timer.running || !data.timer.start) return;
-
-      const elapsed = Math.max(0, Math.floor(
-        (Date.now() - new Date(data.timer.start).getTime()) / 1000
-      ));
-
-      if (display) {
-        const hours = String(Math.floor(elapsed / 3600)).padStart(2, "0");
-        const minutes = String(Math.floor(elapsed % 3600 / 60)).padStart(2, "0");
-        const seconds = String(elapsed % 60).padStart(2, "0");
-
-        display.textContent = `${hours}:${minutes}:${seconds}`;
-      }
-
-      if (status) {
-        status.textContent = `学習中：${data.timer.item || ""}`;
-      }
-    };
-
-    update();
-    timerInterval = setInterval(update, 1000);
+    updateTimerButtons();
+    updateTimerDisplay();
   }
 
   function pauseTimer() {
-    if (!data.timer.running || !data.timer.start) {
-      showMessage("動作中のタイマーはありません。");
-      return;
-    }
+    if (!timer.running) return;
 
-    const elapsed = Math.floor(
-      (Date.now() - new Date(data.timer.start).getTime()) / 1000
-    );
+    timer.accumulated += Date.now() - timer.startedAt;
+    timer.running = false;
+    clearInterval(timer.interval);
+    timer.interval = null;
 
-    data.timer.running = false;
-    data.timer.pausedSeconds = Math.max(0, elapsed);
-    data.timer.start = null;
+    $("#study-timer-status") &&
+      ($("#study-timer-status").textContent = "一時停止中");
 
-    clearInterval(timerInterval);
-    saveData();
-
-    const status = $("#study-timer-status");
-    if (status) status.textContent = "一時停止中";
-
-    showMessage("タイマーを一時停止しました。");
+    updateTimerButtons();
+    updateTimerDisplay();
   }
 
-  function finishTimer() {
-    if (!data.timer.running || !data.timer.start) {
-      showMessage("保存できる学習タイマーがありません。");
-      return;
-    }
+  function resetTimer() {
+    clearInterval(timer.interval);
 
-    const start = new Date(data.timer.start);
-    const end = new Date();
-    const minutes = Math.floor((end.getTime() - start.getTime()) / 60000);
-
-    clearInterval(timerInterval);
-
-    if (minutes < 1) {
-      showMessage("1分未満のため記録しませんでした。もう少し学習してから終了してください。");
-      return;
-    }
-
-    const timer = { ...data.timer };
-
-    data.timer = {
+    timer = {
       running: false,
-      start: null,
-      subjectId: "",
-      item: ""
+      startedAt: 0,
+      accumulated: 0,
+      subject: "",
+      item: "",
+      interval: null
     };
 
-    saveData();
+    updateTimerButtons();
+    updateTimerDisplay();
 
-    addStudyRecord({
-      date: start.toLocaleDateString("sv-SE"),
-      subjectId: timer.subjectId,
-      subject: timer.subject,
-      item: timer.item,
-      minutes,
-      startTime: `${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`,
-      endTime: `${String(end.getHours()).padStart(2, "0")}:${String(end.getMinutes()).padStart(2, "0")}`,
-      source: "timer"
-    });
-
-    const display = $("#study-timer-display");
     const status = $("#study-timer-status");
-
-    if (display) display.textContent = "00:00:00";
-    if (status) status.textContent = "タイマー停止中";
+    if (status) status.textContent = "待機中";
   }
 
-  /* ---------------------------------------------------------
-     予定と行動表
-     --------------------------------------------------------- */
-
-  function addEvent() {
-    openDialog("予定を追加", [
-      { name: "date", label: "日付", type: "date", value: selectedDate, required: true },
-      { name: "title", label: "予定", required: true, placeholder: "例：数学の問題演習" },
-      { name: "startTime", label: "開始時刻", type: "time", value: "16:00", required: true },
-      { name: "endTime", label: "終了時刻", type: "time", value: "17:00", required: true },
-      { name: "note", label: "メモ", type: "textarea" }
-    ], values => {
-      if (values.endTime <= values.startTime) {
-        showMessage("終了時刻は開始時刻より後にしてください。");
-        return;
-      }
-
-      data.events.push({
-        id: makeId(),
-        date: values.date,
-        title: values.title,
-        startTime: values.startTime,
-        endTime: values.endTime,
-        note: values.note,
-        createdAt: new Date().toISOString()
-      });
-
-      selectedDate = values.date;
-      saveData();
-      renderSchedule();
-      renderCalendar();
-      renderHome();
-      showMessage("予定を追加しました。");
-    });
+  function elapsedMilliseconds() {
+    return timer.accumulated +
+      (timer.running ? Date.now() - timer.startedAt : 0);
   }
 
-  function addActual() {
-    openDialog("行動実績を追加", [
-      { name: "date", label: "実施日", type: "date", value: selectedDate, required: true },
-      { name: "title", label: "実際にしたこと", required: true, placeholder: "例：部屋の片付け" },
-      { name: "startTime", label: "開始時刻", type: "time" },
-      { name: "endTime", label: "終了時刻", type: "time" },
-      { name: "minutes", label: "所要時間（分）", type: "number", min: "0", step: "1", value: "0" },
-      { name: "note", label: "メモ", type: "textarea" }
-    ], values => {
-      const minutes = Number(values.minutes || 0);
+  function updateTimerDisplay() {
+    const display = $("#study-timer-display");
+    if (!display) return;
 
-      if (values.startTime && values.endTime && values.endTime <= values.startTime) {
-        showMessage("終了時刻は開始時刻より後にしてください。");
-        return;
-      }
-
-      data.records.push({
-        id: makeId(),
-        date: values.date,
-        subjectId: "",
-        subject: "行動記録",
-        item: values.title,
-        minutes,
-        note: values.note,
-        startTime: values.startTime,
-        endTime: values.endTime,
-        source: "activity",
-        createdAt: new Date().toISOString()
-      });
-
-      selectedDate = values.date;
-      saveData();
-      renderSchedule();
-      renderStudy();
-      showMessage("行動実績を保存しました。");
-    });
+    display.textContent = formatClock(
+      elapsedMilliseconds() / 1000
+    );
   }
 
-  function eventDuration(event) {
-    const start = event.startTime || "00:00";
-    const end = event.endTime || start;
+  function updateTimerButtons() {
+    const start = $('[data-action="timer-start"]');
+    const pause = $('[data-action="timer-pause"]');
+    const finish = $('[data-action="timer-finish"]');
 
-    const [sh, sm] = start.split(":").map(Number);
-    const [eh, em] = end.split(":").map(Number);
-
-    return Math.max(0, eh * 60 + em - (sh * 60 + sm));
+    if (start) start.disabled = timer.running;
+    if (pause) pause.disabled = !timer.running;
+    if (finish) finish.disabled = elapsedMilliseconds() < 1000;
   }
 
-  function renderSchedule() {
-    const view = ensureScheduleView();
-    if (!view) return;
+  async function finishTimer() {
+    if (timer.running) pauseTimer();
 
-    const dateInput = $("#schedule-date");
-    if (dateInput && dateInput.value !== selectedDate) {
-      dateInput.value = selectedDate;
+    const minutes = Math.floor(elapsedMilliseconds() / 60000);
+
+    if (minutes < 1) {
+      showMessage("1分以上計測してから記録してください。");
+      return;
     }
 
-    const timeline = $("#schedule-timeline");
-    if (!timeline) return;
+    const content = `
+      <label>教科
+        <input name="subject" required maxlength="60"
+          placeholder="例：数学" value="${escapeHTML(timer.subject)}">
+      </label>
+      <label>学習した内容
+        <input name="item" maxlength="120"
+          placeholder="例：二次関数" value="${escapeHTML(timer.item)}">
+      </label>
+      <label>記録時間（分）
+        <input name="minutes" type="number" min="1"
+          max="${minutes}" value="${minutes}" required>
+      </label>
+      <label>メモ
+        <textarea name="note" maxlength="500"
+          placeholder="任意"></textarea>
+      </label>
+      <p>計測時間：${formatMinutes(minutes)}</p>
+    `;
+
+    const result = await dialog("学習を記録", content, "記録する");
+
+    if (!result) return;
+
+    const success = addStudyRecord({
+      subject: result.subject,
+      item: result.item,
+      minutes: result.minutes,
+      note: result.note,
+      date: todayKey()
+    });
+
+    if (success) resetTimer();
+  }
+
+  function renderSubjects() {
+    const list = $("#study-subject-list");
+    if (!list) return;
+
+    if (!data.subjects.length) {
+      list.innerHTML = "<p>教科がありません。教科を追加してください。</p>";
+      return;
+    }
+
+    list.innerHTML = data.subjects.map(subject => {
+      const minutes = totalMinutes(data.studyRecords.filter(
+        record => record.subject === subject.name
+      ));
+
+      return `
+        <article class="subject-card">
+          <span class="subject-color"
+            style="background:${escapeHTML(subject.color)}"></span>
+          <div class="subject-card-info">
+            <strong>${escapeHTML(subject.name)}</strong>
+            <small>累計 ${formatMinutes(minutes)}</small>
+          </div>
+          <button type="button" data-remove-subject="${escapeHTML(subject.id)}"
+            aria-label="${escapeHTML(subject.name)}を削除">削除</button>
+        </article>
+      `;
+    }).join("");
+  }
+
+  function renderStudyRecords() {
+    const list = $("#study-record-list");
+    if (!list) return;
+
+    const records = [...data.studyRecords].sort((a, b) =>
+      `${b.date}${b.createdAt}`.localeCompare(`${a.date}${a.createdAt}`)
+    );
+
+    if (!records.length) {
+      list.innerHTML = "<p>まだ学習記録がありません。</p>";
+      return;
+    }
+
+    list.innerHTML = records.slice(0, 100).map(record => `
+      <article class="record-card">
+        <div>
+          <strong>${escapeHTML(record.subject)}</strong>
+          ${record.item ? `<span>${escapeHTML(record.item)}</span>` : ""}
+          <small>${escapeHTML(record.date)}</small>
+          ${record.note ? `<p>${escapeHTML(record.note)}</p>` : ""}
+        </div>
+        <strong>${formatMinutes(record.minutes)}</strong>
+        <button type="button" data-delete-record="${escapeHTML(record.id)}"
+          aria-label="学習記録を削除">削除</button>
+      </article>
+    `).join("");
+  }
+
+  function renderStudy() {
+    renderSubjects();
+    renderStudyRecords();
+    updateTimerDisplay();
+    updateTimerButtons();
+
+    const dateField = $("#manual-study-date");
+    if (dateField && !dateField.value) dateField.value = todayKey();
+  }
+
+  async function addSubject() {
+    const result = await dialog("教科を追加", `
+      <label>教科名
+        <input name="name" maxlength="60" required placeholder="例：情報">
+      </label>
+    `);
+
+    if (!result || !result.name) return;
+
+    if (data.subjects.some(subject => subject.name === result.name)) {
+      showMessage("その教科はすでに登録されています。");
+      return;
+    }
+
+    data.subjects.push({
+      id: uid("subject"),
+      name: result.name,
+      color: colorForIndex(data.subjects.length)
+    });
+
+    saveData();
+    renderStudy();
+    showMessage("教科を追加しました。");
+  }
+
+  async function addStudyItem() {
+    const result = await dialog("学習項目を追加", `
+      <label>教科
+        <input name="subject" required maxlength="60" placeholder="例：英語">
+      </label>
+      <label>学習項目
+        <input name="name" required maxlength="120" placeholder="例：英単語">
+      </label>
+    `);
+
+    if (!result || !result.subject || !result.name) return;
+
+    if (!data.subjects.some(subject => subject.name === result.subject)) {
+      data.subjects.push({
+        id: uid("subject"),
+        name: result.subject,
+        color: colorForIndex(data.subjects.length)
+      });
+    }
+
+    data.studyItems.push({
+      id: uid("study-item"),
+      subject: result.subject,
+      name: result.name
+    });
+
+    saveData();
+    renderStudy();
+    showMessage("学習項目を追加しました。");
+  }
+
+  function renderHome() {
+    const todayMinutes = totalForDate(todayKey());
+    const goal = Math.max(1, Number(data.settings.dailyGoal) || 120);
+    const percent = Math.min(100, Math.round(todayMinutes / goal * 100));
+
+    setText("#home-today-time", formatMinutes(todayMinutes));
+    setText("#home-goal-percent", `${percent}%`);
+    setText("#home-goal-message",
+      todayMinutes >= goal ? "今日の目標達成！" : "目標まであと " +
+      formatMinutes(goal - todayMinutes));
+
+    setWidth("#home-goal-progress", percent);
+
+    setText("#home-rocket-level", `Lv.${data.rocket.level}`);
+    setText("#home-rocket-exp", `${data.rocket.exp} EXP`);
+    setWidth("#home-rocket-progress", data.rocket.exp % 100);
+
+    const nextRecord = [...data.studyItems].slice(0, 1)[0];
+    setText("#home-next-mission",
+      nextRecord ? `${nextRecord.subject}：${nextRecord.name}` : "学習項目を登録しよう");
+
+    renderHomeSchedule();
+    renderHomeCountdown();
+  }
+
+  function renderHomeSchedule() {
+    const list = $("#home-schedule-list");
+    if (!list) return;
+
+    const events = data.events
+      .filter(event => event.date === todayKey())
+      .sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+
+    const records = recordsForDate(todayKey());
+
+    const rows = [
+      ...events.map(event => ({
+        time: event.time || "",
+        title: event.title,
+        type: "予定"
+      })),
+      ...records.map(record => ({
+        time: "",
+        title: `${record.subject}${record.item ? "： " + record.item : ""} (${formatMinutes(record.minutes)})`,
+        type: "実績"
+      }))
+    ].sort((a, b) => a.time.localeCompare(b.time));
+
+    list.innerHTML = rows.length
+      ? rows.map(row => `
+          <article class="schedule-row">
+            <span>${escapeHTML(row.time || "—")}</span>
+            <span class="schedule-type">${row.type}</span>
+            <span>${escapeHTML(row.title)}</span>
+          </article>
+        `).join("")
+      : "<p>今日の予定・実績はありません。</p>";
+  }
+
+  function renderHomeCountdown() {
+    const list = $("#home-countdown-list");
+    if (!list) return;
+
+    const today = parseDate(todayKey());
+
+    list.innerHTML = data.countdowns.slice(0, 3).map(item => {
+      const days = Math.ceil(
+        (parseDate(item.date) - today) / 86400000
+      );
+
+      return `
+        <article class="countdown-row">
+          <strong>${escapeHTML(item.title)}</strong>
+          <span>${days < 0 ? "期限超過" : `あと ${days} 日`}</span>
+        </article>
+      `;
+    }).join("") || "<p>カウントダウンはありません。</p>";
+  }
+
+  function renderCalendar() {
+    setText("#calendar-month-label",
+      `${calendarMonth.getFullYear()}年${calendarMonth.getMonth() + 1}月`);
+
+    setText("#calendar-selected-date-label", selectedDate);
+
+    const grid = $("#calendar-grid");
+
+    if (grid) {
+      const year = calendarMonth.getFullYear();
+      const month = calendarMonth.getMonth();
+      const firstDay = new Date(year, month, 1).getDay();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const headers = ["日", "月", "火", "水", "木", "金", "土"];
+
+      let html = headers.map(day =>
+        `<div class="calendar-weekday">${day}</div>`
+      ).join("");
+
+      for (let i = 0; i < firstDay; i++) {
+        html += '<div class="calendar-empty"></div>';
+      }
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        const key = dateKey(new Date(year, month, day));
+        const hasEvent = data.events.some(event => event.date === key);
+        const hasStudy = data.studyRecords.some(record => record.date === key);
+        const selected = key === selectedDate;
+
+        html += `
+          <button type="button"
+            class="calendar-day${selected ? " selected" : ""}${key === todayKey() ? " today" : ""}"
+            data-calendar-date="${key}">
+            <span>${day}</span>
+            ${hasEvent ? '<i class="calendar-dot event-dot"></i>' : ""}
+            ${hasStudy ? '<i class="calendar-dot study-dot"></i>' : ""}
+          </button>
+        `;
+      }
+
+      grid.innerHTML = html;
+    }
+
+    renderSelectedDay();
+    renderTimetable();
+    renderTasks();
+  }
+
+  function renderSelectedDay() {
+    const list = $("#calendar-event-list");
+    if (!list) return;
 
     const events = data.events
       .filter(event => event.date === selectedDate)
-      .sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
+      .sort((a, b) => (a.time || "").localeCompare(b.time || ""));
 
-    const records = data.records
-      .filter(record => record.date === selectedDate)
-      .sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
-
-    const planned = events.reduce((sum, event) => sum + eventDuration(event), 0);
-    const actual = records.reduce((sum, record) => sum + Number(record.minutes || 0), 0);
-
-    const plannedTotal = $("#schedule-planned-total");
-    const actualTotal = $("#schedule-actual-total");
-
-    if (plannedTotal) plannedTotal.textContent = formatMinutes(planned);
-    if (actualTotal) actualTotal.textContent = formatMinutes(actual);
+    const records = recordsForDate(selectedDate);
 
     const entries = [
       ...events.map(event => ({
-        kind: "plan",
         id: event.id,
-        date: event.date,
+        type: "予定",
+        time: event.time || "",
         title: event.title,
-        startTime: event.startTime || "",
-        endTime: event.endTime || "",
-        minutes: eventDuration(event),
-        note: event.note || ""
+        detail: event.note || ""
       })),
       ...records.map(record => ({
-        kind: "actual",
         id: record.id,
-        date: record.date,
-        title: `${record.subject && record.subject !== "行動記録" ? `${record.subject}：` : ""}${record.item || "学習"}`,
-        startTime: record.startTime || "",
-        endTime: record.endTime || "",
-        minutes: Number(record.minutes || 0),
-        note: record.note || "",
-        source: record.source
+        type: "実績",
+        time: "",
+        title: `${record.subject}${record.item ? "： " + record.item : ""}`,
+        detail: formatMinutes(record.minutes)
       }))
-    ].sort((a, b) =>
-      (a.startTime || "99:99").localeCompare(b.startTime || "99:99")
-    );
+    ].sort((a, b) => a.time.localeCompare(b.time));
 
-    timeline.innerHTML = `
-      <h3>${escapeHTML(selectedDate)} の行動</h3>
-      <div class="schedule-legend">
-        <span class="schedule-plan-key">予定</span>
-        <span class="schedule-actual-key">実績</span>
-      </div>
-      ${entries.length ? entries.map(entry => `
-        <article class="schedule-entry ${entry.kind === "plan" ? "is-plan" : "is-actual"}">
-          <div class="schedule-entry-time">
-            ${escapeHTML(entry.startTime || "時刻未設定")}
-            ${entry.endTime ? `〜${escapeHTML(entry.endTime)}` : ""}
-          </div>
-          <div class="schedule-entry-content">
-            <span class="schedule-entry-type">${entry.kind === "plan" ? "予定" : "実績"}</span>
+    list.innerHTML = entries.length
+      ? entries.map(entry => `
+          <article class="day-entry">
+            <span class="entry-type">${entry.type}</span>
             <strong>${escapeHTML(entry.title)}</strong>
-            ${entry.minutes ? `<p>${formatMinutes(entry.minutes)}</p>` : ""}
-            ${entry.note ? `<p>${escapeHTML(entry.note)}</p>` : ""}
-            ${entry.source === "timer" ? "<small>タイマーから自動記録</small>" : ""}
-          </div>
-          <button type="button"
-            data-action="${entry.kind === "plan" ? "delete-event" : "delete-record"}"
-            data-id="${escapeHTML(entry.id)}">削除</button>
-        </article>
-      `).join("") : "<p>この日の予定・実績はありません。予定や行動を追加できます。</p>"}
-    `;
-  }
-
-  function changeScheduleDate(days) {
-    const d = new Date(`${selectedDate}T12:00:00`);
-    d.setDate(d.getDate() + days);
-    selectedDate = d.toLocaleDateString("sv-SE");
-    renderSchedule();
-  }
-
-  /* ---------------------------------------------------------
-     カレンダー
-     --------------------------------------------------------- */
-
-  function renderCalendar() {
-    const grid = $("#calendar-grid");
-    const label = $("#calendar-month-label");
-    const selectedLabel = $("#calendar-selected-date-label");
-    const eventList = $("#calendar-event-list");
-
-    if (!grid) return;
-
-    const current = new Date(`${selectedDate}T12:00:00`);
-    const year = current.getFullYear();
-    const month = current.getMonth();
-
-    if (label) label.textContent = `${year}年${month + 1}月`;
-    if (selectedLabel) selectedLabel.textContent = `${selectedDate} の予定`;
-
-    const firstDay = new Date(year, month, 1);
-    const start = new Date(year, month, 1 - firstDay.getDay());
-
-    const days = Array.from({ length: 42 }, (_, index) => {
-      const d = new Date(start);
-      d.setDate(start.getDate() + index);
-      return d;
-    });
-
-    grid.innerHTML = days.map(d => {
-      const date = d.toLocaleDateString("sv-SE");
-      const hasEvent = data.events.some(event => event.date === date);
-      const active = date === selectedDate;
-      const inMonth = d.getMonth() === month;
-
-      return `
-        <button type="button"
-          class="calendar-day ${active ? "active" : ""} ${inMonth ? "" : "outside-month"} ${hasEvent ? "has-event" : ""}"
-          data-action="select-calendar-date"
-          data-date="${date}"
-          aria-pressed="${active}">
-          <span>${d.getDate()}</span>
-          ${hasEvent ? '<i aria-label="予定あり"></i>' : ""}
-        </button>
-      `;
-    }).join("");
-
-    if (eventList) {
-      const events = data.events.filter(event => event.date === selectedDate);
-
-      eventList.innerHTML = events.length
-        ? events.map(event => `
-            <article class="calendar-event">
-              <strong>${escapeHTML(event.title)}</strong>
-              <p>${escapeHTML(event.startTime || "")}〜${escapeHTML(event.endTime || "")}</p>
-              <button type="button" data-action="delete-event" data-id="${escapeHTML(event.id)}">削除</button>
-            </article>
-          `).join("")
-        : "<p>この日の予定はありません。</p>";
-    }
-  }
-
-  /* ---------------------------------------------------------
-     目標マップ：親子関係を使ったスキルツリー
-     --------------------------------------------------------- */
-
-  function addGoal() {
-    openDialog("目標を追加", [
-      { name: "title", label: "目標名", required: true, placeholder: "例：英語の長文を読めるようにする" },
-      { name: "detail", label: "説明", type: "textarea" }
-    ], values => {
-      data.goals.push({
-        id: makeId(),
-        title: values.title,
-        detail: values.detail,
-        parentId: null,
-        completed: false
-      });
-
-      saveData();
-      renderGoals();
-      showMessage("目標を追加しました。");
-    });
-  }
-
-  function addGoalNode() {
-    if (!data.goals.length) {
-      addGoal();
-      return;
-    }
-
-    openDialog("スキルツリーに目標を追加", [
-      { name: "title", label: "目標名", required: true },
-      { name: "detail", label: "説明", type: "textarea" },
-      {
-        name: "parentId",
-        label: "つなげる親目標",
-        type: "select",
-        options: data.goals.map(goal => ({
-          value: goal.id,
-          label: goal.title
-        }))
-      }
-    ], values => {
-      data.goals.push({
-        id: makeId(),
-        title: values.title,
-        detail: values.detail,
-        parentId: values.parentId || null,
-        completed: false
-      });
-
-      saveData();
-      renderGoals();
-      showMessage("スキルツリーに目標を追加しました。");
-    });
-  }
-
-  function renderGoals() {
-    const list = $("#goal-list");
-    const canvas = $("#goal-map-canvas");
-    const completion = $("#goal-map-completion");
-    const progress = $("#goal-map-progress");
-
-    const total = data.goals.length;
-    const completed = data.goals.filter(goal => goal.completed).length;
-    const percent = total ? Math.round(completed / total * 100) : 0;
-
-    if (completion) completion.textContent = `${percent}%`;
-    if (progress) {
-      progress.style.width = `${percent}%`;
-      progress.setAttribute("aria-valuenow", String(percent));
-    }
-
-    const childrenOf = parentId =>
-      data.goals.filter(goal => (goal.parentId || null) === parentId);
-
-    function renderBranch(goal, depth = 0, visited = new Set()) {
-      if (visited.has(goal.id)) return "";
-      const nextVisited = new Set(visited);
-      nextVisited.add(goal.id);
-
-      const children = childrenOf(goal.id);
-
-      return `
-        <div class="goal-tree-branch" style="--goal-depth:${Math.min(depth, 8)}">
-          <article class="goal-node ${goal.completed ? "completed" : ""}">
-            <button type="button"
-              class="goal-node-toggle"
-              data-action="toggle-goal"
-              data-id="${escapeHTML(goal.id)}"
-              aria-pressed="${goal.completed}">
-              <span class="goal-node-status">${goal.completed ? "✓" : "○"}</span>
-              <strong>${escapeHTML(goal.title)}</strong>
-            </button>
-            ${goal.detail ? `<p>${escapeHTML(goal.detail)}</p>` : ""}
-            <div class="goal-node-actions">
-              <button type="button" data-action="add-child-goal" data-id="${escapeHTML(goal.id)}">子目標</button>
-              <button type="button" data-action="delete-goal" data-id="${escapeHTML(goal.id)}">削除</button>
-            </div>
+            <span>${escapeHTML(entry.time || entry.detail)}</span>
+            ${entry.type === "予定"
+              ? `<button type="button" data-delete-event="${escapeHTML(entry.id)}">削除</button>`
+              : ""}
           </article>
-          ${children.length ? `
-            <div class="goal-tree-children">
-              ${children.map(child => renderBranch(child, depth + 1, nextVisited)).join("")}
-            </div>
-          ` : ""}
-        </div>
-      `;
-    }
-
-    if (canvas) {
-      const roots = data.goals.filter(goal =>
-        !goal.parentId || !data.goals.some(parent => parent.id === goal.parentId)
-      );
-
-      canvas.innerHTML = roots.length
-        ? roots.map(root => renderBranch(root)).join("")
-        : "<p>目標を追加してスキルツリーを作成してください。</p>";
-    }
-
-    if (list) {
-      list.innerHTML = data.goals.length
-        ? data.goals.map(goal => `
-            <article class="goal-list-item">
-              <label>
-                <input type="checkbox"
-                  data-action="toggle-goal"
-                  data-id="${escapeHTML(goal.id)}"
-                  ${goal.completed ? "checked" : ""}>
-                ${escapeHTML(goal.title)}
-              </label>
-            </article>
-          `).join("")
-        : "<p>目標がまだありません。</p>";
-    }
+        `).join("")
+      : "<p>この日の予定・実績はありません。</p>";
   }
 
-  /* ---------------------------------------------------------
-     ホーム画面
-     --------------------------------------------------------- */
+  async function addEvent() {
+    const result = await dialog("予定を追加", `
+      <label>予定名
+        <input name="title" required maxlength="120" placeholder="例：数学の課題">
+      </label>
+      <label>日付
+        <input name="date" type="date" required value="${selectedDate}">
+      </label>
+      <label>開始時刻
+        <input name="time" type="time">
+      </label>
+      <label>メモ
+        <textarea name="note" maxlength="500"></textarea>
+      </label>
+    `);
 
-  function renderHome() {
-    renderStudy();
+    if (!result || !result.title || !result.date) return;
 
-    const nextMission = $("#home-next-mission");
-    if (nextMission) {
-      const next = data.goals.find(goal => !goal.completed);
-      nextMission.textContent = next
-        ? `次の目標：${next.title}`
-        : "次の目標を設定しましょう";
-    }
-
-    const scheduleList = $("#home-schedule-list");
-    if (scheduleList) {
-      const events = data.events
-        .filter(event => event.date === today())
-        .sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
-
-      scheduleList.innerHTML = events.length
-        ? events.map(event => `
-            <article>
-              <strong>${escapeHTML(event.startTime || "")} ${escapeHTML(event.title)}</strong>
-              <span>${escapeHTML(event.endTime || "")}</span>
-            </article>
-          `).join("")
-        : "<p>今日の予定はありません。</p>";
-    }
-
-    const countdownList = $("#home-countdown-list");
-    if (countdownList) {
-      countdownList.innerHTML = data.countdowns.map(item => {
-        const diff = Math.ceil(
-          (new Date(`${item.date}T00:00:00`) - new Date(`${today()}T00:00:00`))
-          / 86400000
-        );
-
-        return `<p>${escapeHTML(item.title)}：あと${diff}日</p>`;
-      }).join("") || "<p>カウントダウンはありません。</p>";
-    }
-  }
-
-  /* ---------------------------------------------------------
-     設定・カウントダウン
-     --------------------------------------------------------- */
-
-  function addCountdown() {
-    openDialog("カウントダウンを追加", [
-      { name: "title", label: "イベント名", required: true, placeholder: "例：定期テスト" },
-      { name: "date", label: "日付", type: "date", required: true }
-    ], values => {
-      data.countdowns.push({ id: makeId(), ...values });
-      saveData();
-      renderHome();
-      renderCountdownList();
-      showMessage("カウントダウンを追加しました。");
+    data.events.push({
+      id: uid("event"),
+      title: result.title,
+      date: result.date,
+      time: result.time,
+      note: result.note
     });
+
+    selectedDate = result.date;
+    calendarMonth = parseDate(result.date);
+    saveData();
+    renderAll();
+    showMessage("予定を追加しました。");
   }
 
-  function renderCountdownList() {
-    const list = $("#countdown-list");
-    if (!list) return;
+  function renderTimetable() {
+    const body = $("#timetable-body");
+    if (!body) return;
 
-    list.innerHTML = data.countdowns.map(item => `
-      <article>
-        <strong>${escapeHTML(item.title)}</strong>
-        <span>${escapeHTML(item.date)}</span>
-        <button type="button" data-action="delete-countdown" data-id="${escapeHTML(item.id)}">削除</button>
-      </article>
-    `).join("") || "<p>イベントがありません。</p>";
+    const days = ["月", "火", "水", "木", "金", "土", "日"];
+    const hours = Array.from({ length: 20 }, (_, index) => (index + 6) % 24);
+
+    body.innerHTML = hours.map(hour => `
+      <tr>
+        <th>${String(hour).padStart(2, "0")}:00</th>
+        ${days.map((day, index) => {
+          const entries = data.timetable.filter(item =>
+            item.day === index && Number(item.hour) === hour
+          );
+
+          return `<td>${
+            entries.map(item =>
+              `<div class="timetable-entry">${escapeHTML(item.title)}</div>`
+            ).join("")
+          }</td>`;
+        }).join("")}
+      </tr>
+    `).join("");
   }
 
-  function saveSettings() {
-    const dailyGoal = $("#setting-daily-goal");
-    const animations = $("#setting-animations");
-    const theme = $("#setting-theme");
+  async function editTimetable() {
+    const result = await dialog("時間割に追加", `
+      <label>曜日
+        <select name="day">
+          <option value="0">月曜日</option>
+          <option value="1">火曜日</option>
+          <option value="2">水曜日</option>
+          <option value="3">木曜日</option>
+          <option value="4">金曜日</option>
+          <option value="5">土曜日</option>
+          <option value="6">日曜日</option>
+        </select>
+      </label>
+      <label>時刻
+        <select name="hour">
+          ${Array.from({ length: 20 }, (_, i) => {
+            const hour = (i + 6) % 24;
+            return `<option value="${hour}">${String(hour).padStart(2, "0")}:00</option>`;
+          }).join("")}
+        </select>
+      </label>
+      <label>授業・予定名
+        <input name="title" required maxlength="100">
+      </label>
+    `);
 
-    if (dailyGoal) {
-      data.dailyGoal = Math.max(1, Number(dailyGoal.value) || 120);
-    }
+    if (!result || !result.title) return;
 
-    if (animations) {
-      data.settings.animations = animations.checked;
-    }
-
-    if (theme) {
-      data.settings.theme = theme.value;
-    }
+    data.timetable.push({
+      id: uid("timetable"),
+      day: Number(result.day),
+      hour: Number(result.hour),
+      title: result.title
+    });
 
     saveData();
+    renderTimetable();
+    showMessage("時間割を保存しました。");
+  }
+
+  async function addTask() {
+    const result = await dialog("タスクを追加", `
+      <label>タスク名
+        <input name="title" required maxlength="120" placeholder="例：英単語を覚える">
+      </label>
+      <label>期限
+        <input name="date" type="date" value="${todayKey()}">
+      </label>
+    `);
+
+    if (!result || !result.title) return;
+
+    data.tasks.push({
+      id: uid("task"),
+      title: result.title,
+      date: result.date || todayKey(),
+      done: false
+    });
+
+    saveData();
+    renderTasks();
     renderHome();
-    showMessage("設定を保存しました。");
-  }
-
-  /* ---------------------------------------------------------
-     ボタンイベント
-     --------------------------------------------------------- */
-
-  function handleAction(action, element) {
-    switch (action) {
-      case "start-study":
-      case "timer-start":
-        startTimer();
-        break;
-
-      case "timer-pause":
-        pauseTimer();
-        break;
-
-      case "timer-finish":
-        finishTimer();
-        break;
-
-      case "add-subject":
-        addSubject();
-        break;
-
-      case "add-study-item":
-        addStudyItem();
-        break;
-
-      case "add-event":
-        addEvent();
-        break;
-
-      case "add-actual":
-        addActual();
-        break;
-
-      case "add-goal":
-        addGoal();
-        break;
-
-      case "add-goal-map-node":
-        addGoalNode();
-        break;
-
-      case "add-countdown":
-        addCountdown();
-        break;
-
-      case "schedule-prev":
-        changeScheduleDate(-1);
-        break;
-
-      case "schedule-next":
-        changeScheduleDate(1);
-        break;
-
-      case "schedule-today":
-        selectedDate = today();
-        renderSchedule();
-        break;
-
-      case "select-calendar-date":
-        selectedDate = element.dataset.date;
-        renderCalendar();
-        break;
-
-      case "delete-event":
-        data.events = data.events.filter(item => item.id !== element.dataset.id);
-        saveData();
-        renderCalendar();
-        renderSchedule();
-        renderHome();
-        showMessage("予定を削除しました。");
-        break;
-
-      case "delete-record":
-        data.records = data.records.filter(item => item.id !== element.dataset.id);
-        saveData();
-        renderStudy();
-        renderSchedule();
-        renderHome();
-        showMessage("記録を削除しました。");
-        break;
-
-      case "delete-countdown":
-        data.countdowns = data.countdowns.filter(item => item.id !== element.dataset.id);
-        saveData();
-        renderCountdownList();
-        renderHome();
-        break;
-
-      case "toggle-goal": {
-        const goal = data.goals.find(item => item.id === element.dataset.id);
-        if (!goal) break;
-
-        goal.completed = element.type === "checkbox"
-          ? element.checked
-          : !goal.completed;
-
-        saveData();
-        renderGoals();
-        break;
-      }
-
-      case "add-child-goal": {
-        const parent = data.goals.find(item => item.id === element.dataset.id);
-        if (!parent) break;
-
-        openDialog("子目標を追加", [
-          { name: "title", label: "目標名", required: true },
-          { name: "detail", label: "説明", type: "textarea" }
-        ], values => {
-          data.goals.push({
-            id: makeId(),
-            title: values.title,
-            detail: values.detail,
-            parentId: parent.id,
-            completed: false
-          });
-
-          saveData();
-          renderGoals();
-        });
-        break;
-      }
-
-      case "delete-goal": {
-        const id = element.dataset.id;
-        const removeIds = new Set([id]);
-
-        let changed = true;
-        while (changed) {
-          changed = false;
-          data.goals.forEach(goal => {
-            if (goal.parentId && removeIds.has(goal.parentId) && !removeIds.has(goal.id)) {
-              removeIds.add(goal.id);
-              changed = true;
-            }
-          });
-        }
-
-        data.goals = data.goals.filter(goal => !removeIds.has(goal.id));
-        saveData();
-        renderGoals();
-        showMessage("目標とその子目標を削除しました。");
-        break;
-      }
-
-      default:
-        showMessage("この操作はまだ接続されていません。");
-    }
-  }
-
-  function bindEvents() {
-    $("#menu-open")?.addEventListener("click", event => {
-      event.preventDefault();
-      openMenu();
-    });
-
-    $("#menu-close")?.addEventListener("click", event => {
-      event.preventDefault();
-      closeMenu();
-    });
-
-    $("#menu-backdrop")?.addEventListener("click", closeMenu);
-
-    document.addEventListener("keydown", event => {
-      if (event.key === "Escape") {
-        closeMenu();
-        closeDialog();
-      }
-    });
-
-    document.addEventListener("click", event => {
-      const viewButton = event.target.closest("[data-view]");
-      if (viewButton) {
-        event.preventDefault();
-        showView(viewButton.dataset.view);
-        return;
-      }
-
-      const actionButton = event.target.closest("[data-action]");
-      if (actionButton) {
-        event.preventDefault();
-        handleAction(actionButton.dataset.action, actionButton);
-      }
-    });
-
-    const dialogForm = $("#cosmos-dialog-form");
-    dialogForm?.addEventListener("submit", handleDialogSubmit);
-
-    const dialog = $("#cosmos-dialog");
-    dialog?.addEventListener("cancel", event => {
-      event.preventDefault();
-      closeDialog();
-    });
-
-    $("#manual-study-form")?.addEventListener("submit", event => {
-      event.preventDefault();
-
-      const subjectId = $("#manual-study-subject")?.value || "";
-      const item = $("#manual-study-item")?.value.trim() || "";
-      const date = $("#manual-study-date")?.value || today();
-      const minutes = Number($("#manual-study-minutes")?.value || 0);
-      const note = $("#manual-study-note")?.value.trim() || "";
-
-      if (!item) {
-        showMessage("学習内容を入力してください。");
-        return;
-      }
-
-      if (addStudyRecord({
-        subjectId,
-        subject: getSubjectName(subjectId),
-        item,
-        date,
-        minutes,
-        note,
-        source: "manual"
-      })) {
-        event.target.reset();
-      }
-    });
-
-    $("#schedule-date")?.addEventListener("change", event => {
-      if (event.target.value) {
-        selectedDate = event.target.value;
-        renderSchedule();
-      }
-    });
-
-    $("#calendar-prev")?.addEventListener("click", () => {
-      const d = new Date(`${selectedDate}T12:00:00`);
-      d.setMonth(d.getMonth() - 1);
-      selectedDate = d.toLocaleDateString("sv-SE");
-      renderCalendar();
-    });
-
-    $("#calendar-next")?.addEventListener("click", () => {
-      const d = new Date(`${selectedDate}T12:00:00`);
-      d.setMonth(d.getMonth() + 1);
-      selectedDate = d.toLocaleDateString("sv-SE");
-      renderCalendar();
-    });
-
-    $("#settings-study-form")?.addEventListener("submit", event => {
-      event.preventDefault();
-      saveSettings();
-    });
-
-    $("#setting-daily-goal") &&
-      ($("#setting-daily-goal").value = String(data.dailyGoal));
-
-    $("#setting-animations") &&
-      ($("#setting-animations").checked = data.settings.animations);
-
-    $("#setting-theme") &&
-      ($("#setting-theme").value = data.settings.theme);
-
-    $$('input[name="bottomShortcut"]').forEach(input => {
-      input.addEventListener("change", () => {
-        const selected = $$('input[name="bottomShortcut"]:checked')
-          .map(item => item.value);
-
-        $$("#bottom-navigation [data-shortcut]").forEach(button => {
-          button.hidden = !selected.includes(button.dataset.shortcut);
-        });
-      });
-    });
-
-    $("#edit-timetable")?.addEventListener("click", () => {
-      showMessage("時間割の編集機能は、次の実装段階で接続します。");
-    });
-
-    $("#add-task")?.addEventListener("click", () => {
-      openDialog("タスクを追加", [
-        { name: "title", label: "タスク名", required: true },
-        { name: "date", label: "期限", type: "date", value: today() }
-      ], values => {
-        data.tasks.push({ id: makeId(), ...values, completed: false });
-        saveData();
-        renderTasks();
-      });
-    });
-
-    $("#add-habit")?.addEventListener("click", () => {
-      showMessage("習慣の追加機能は、次の実装段階で接続します。");
-    });
-
-    $("#enable-notifications")?.addEventListener("click", async () => {
-      if (!("Notification" in window)) {
-        showMessage("この環境では通知を利用できません。");
-        return;
-      }
-
-      const permission = await Notification.requestPermission();
-      showMessage(permission === "granted"
-        ? "通知を許可しました。"
-        : "通知は許可されていません。");
-    });
-
-    $("#economy-deposit")?.addEventListener("click", () => economyAction("deposit"));
-    $("#economy-withdraw")?.addEventListener("click", () => economyAction("withdraw"));
-    $("#economy-borrow")?.addEventListener("click", () => economyAction("borrow"));
+    showMessage("タスクを追加しました。");
   }
 
   function renderTasks() {
@@ -1538,100 +934,944 @@
     if (!list) return;
 
     list.innerHTML = data.tasks.map(task => `
-      <article>
+      <article class="task-row${task.done ? " completed" : ""}">
         <label>
-          <input type="checkbox" data-task-id="${escapeHTML(task.id)}" ${task.completed ? "checked" : ""}>
-          ${escapeHTML(task.title)}
+          <input type="checkbox" data-task-done="${escapeHTML(task.id)}"
+            ${task.done ? "checked" : ""}>
+          <span>${escapeHTML(task.title)}</span>
         </label>
-        <span>${escapeHTML(task.date || "")}</span>
+        <small>${escapeHTML(task.date || "")}</small>
         <button type="button" data-delete-task="${escapeHTML(task.id)}">削除</button>
       </article>
     `).join("") || "<p>タスクはありません。</p>";
   }
 
-  function economyAction(type) {
+  function renderStatistics() {
+    const today = totalForDate(todayKey());
+    const goal = Number(data.settings.dailyGoal) || 120;
+
+    setText("#stats-today-time", formatMinutes(today));
+    setText("#stats-today-goal", formatMinutes(goal));
+    setText("#stats-today-progress",
+      `${Math.min(100, Math.round(today / Math.max(1, goal) * 100))}%`);
+
+    drawSubjectChart();
+    drawBarChart("#daily-bar-chart", 7);
+    drawBarChart("#weekly-bar-chart", 7, true);
+    drawBarChart("#monthly-bar-chart", 30);
+  }
+
+  function drawSubjectChart() {
+    const canvas = $("#subject-doughnut-chart");
+    const legend = $("#subject-chart-legend");
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const ratio = window.devicePixelRatio || 1;
+
+    canvas.width = Math.max(1, rect.width * ratio);
+    canvas.height = Math.max(1, rect.height * ratio);
+    ctx.scale(ratio, ratio);
+
+    const width = rect.width;
+    const height = rect.height;
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const radius = Math.min(width, height) * 0.38;
+    const innerRadius = radius * 0.58;
+
+    const values = data.subjects.map(subject => ({
+      ...subject,
+      minutes: totalMinutes(data.studyRecords.filter(record =>
+        record.subject === subject.name
+      ))
+    })).filter(subject => subject.minutes > 0);
+
+    const total = values.reduce((sum, item) => sum + item.minutes, 0);
+
+    ctx.clearRect(0, 0, width, height);
+
+    if (!total) {
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = "#24324f";
+      ctx.lineWidth = radius - innerRadius;
+      ctx.stroke();
+    } else {
+      let angle = -Math.PI / 2;
+
+      values.forEach(item => {
+        const nextAngle = angle + item.minutes / total * Math.PI * 2;
+
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, angle, nextAngle);
+        ctx.strokeStyle = item.color;
+        ctx.lineWidth = radius - innerRadius;
+        ctx.stroke();
+
+        angle = nextAngle;
+      });
+    }
+
+    ctx.fillStyle = "#f2f5ff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 14px sans-serif";
+    ctx.fillText(formatMinutes(total), centerX, centerY);
+
+    if (legend) {
+      legend.innerHTML = values.map(item => `
+        <div class="chart-legend-item">
+          <span style="background:${escapeHTML(item.color)}"></span>
+          ${escapeHTML(item.name)}：${formatMinutes(item.minutes)}
+        </div>
+      `).join("") || "<p>学習記録を追加するとグラフが表示されます。</p>";
+    }
+  }
+
+  function drawBarChart(selector, count, weekly = false) {
+    const canvas = $(selector);
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const ratio = window.devicePixelRatio || 1;
+
+    canvas.width = Math.max(1, rect.width * ratio);
+    canvas.height = Math.max(1, rect.height * ratio);
+    ctx.scale(ratio, ratio);
+
+    const width = rect.width;
+    const height = rect.height;
+    const padding = 24;
+    const today = parseDate(todayKey());
+    const values = [];
+
+    for (let i = count - 1; i >= 0; i--) {
+      const date = new Date(today);
+      date.setDate(today.getDate() - i);
+
+      values.push({
+        date,
+        value: totalForDate(dateKey(date))
+      });
+    }
+
+    const max = Math.max(60, ...values.map(item => item.value));
+    const chartHeight = height - padding * 2;
+    const chartWidth = width - padding * 2;
+    const slot = chartWidth / values.length;
+    const barWidth = Math.max(3, slot * 0.56);
+
+    ctx.clearRect(0, 0, width, height);
+
+    ctx.strokeStyle = "rgba(170,193,255,.15)";
+    ctx.lineWidth = 1;
+
+    for (let i = 0; i < 4; i++) {
+      const y = padding + chartHeight * i / 3;
+      ctx.beginPath();
+      ctx.moveTo(padding, y);
+      ctx.lineTo(width - padding, y);
+      ctx.stroke();
+    }
+
+    values.forEach((item, index) => {
+      const barHeight = item.value / max * chartHeight;
+      const x = padding + slot * index + (slot - barWidth) / 2;
+      const y = height - padding - barHeight;
+
+      ctx.fillStyle = "#69a7ff";
+      ctx.beginPath();
+      ctx.roundRect(x, y, barWidth, Math.max(2, barHeight), 4);
+      ctx.fill();
+
+      ctx.fillStyle = "#aab7d2";
+      ctx.font = "10px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(
+        weekly ? `${item.date.getMonth() + 1}/${item.date.getDate()}` :
+          `${item.date.getMonth() + 1}/${item.date.getDate()}`,
+        x + barWidth / 2,
+        height - 7
+      );
+    });
+  }
+
+  function renderGoals() {
+    const list = $("#goal-list");
+    if (!list) return;
+
+    const completed = data.goals.filter(goal => goal.done).length;
+    setText("#goal-map-completion",
+      `${completed}/${data.goals.length}`);
+    setWidth("#goal-map-progress",
+      data.goals.length ? completed / data.goals.length * 100 : 0);
+
+    list.innerHTML = data.goals.map(goal => `
+      <article class="goal-card${goal.done ? " completed" : ""}">
+        <label>
+          <input type="checkbox" data-goal-done="${escapeHTML(goal.id)}"
+            ${goal.done ? "checked" : ""}>
+          <strong>${escapeHTML(goal.title)}</strong>
+        </label>
+        ${goal.date ? `<small>${escapeHTML(goal.date)}</small>` : ""}
+        <button type="button" data-delete-goal="${escapeHTML(goal.id)}">削除</button>
+      </article>
+    `).join("") || "<p>目標を登録して、達成への道筋を作りましょう。</p>";
+
+    renderGoalTree();
+    renderHabits();
+  }
+
+  function renderGoalTree() {
+    const canvas = $("#goal-map-canvas");
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const ratio = window.devicePixelRatio || 1;
+    const width = Math.max(rect.width, 280);
+    const height = Math.max(400, data.goalNodes.length * 100 + 120);
+
+    canvas.width = width * ratio;
+    canvas.height = height * ratio;
+    canvas.style.height = `${height}px`;
+    ctx.scale(ratio, ratio);
+    ctx.clearRect(0, 0, width, height);
+
+    const nodes = data.goalNodes.length
+      ? data.goalNodes
+      : [
+          { id: "root", title: "月を目指す", parentId: null, done: false }
+        ];
+
+    const centerX = width / 2;
+    const positions = new Map();
+
+    nodes.forEach((node, index) => {
+      positions.set(node.id, {
+        x: centerX + ((index % 3) - 1) * Math.min(90, width * 0.24),
+        y: 55 + Math.floor(index / 3) * 95
+      });
+    });
+
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(105,167,255,.6)";
+
+    nodes.forEach(node => {
+      if (!node.parentId || !positions.has(node.parentId)) return;
+
+      const from = positions.get(node.parentId);
+      const to = positions.get(node.id);
+
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y + 22);
+      ctx.lineTo(to.x, to.y - 22);
+      ctx.stroke();
+    });
+
+    nodes.forEach(node => {
+      const point = positions.get(node.id);
+      const label = String(node.title || "").slice(0, 12);
+
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, node.id === "root" ? 27 : 22, 0, Math.PI * 2);
+      ctx.fillStyle = node.done ? "#246e69" :
+        node.id === "root" ? "#594b9c" : "#172c4d";
+      ctx.fill();
+
+      ctx.strokeStyle = node.done ? "#76e3b0" : "#69a7ff";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.fillStyle = "#f2f5ff";
+      ctx.textAlign = "center";
+      ctx.font = "11px sans-serif";
+      ctx.fillText(label, point.x, point.y + 38);
+    });
+  }
+
+  async function addGoal() {
+    const result = await dialog("目標を追加", `
+      <label>目標
+        <input name="title" required maxlength="120" placeholder="例：数学のテストで目標点を取る">
+      </label>
+      <label>期限
+        <input name="date" type="date">
+      </label>
+    `);
+
+    if (!result || !result.title) return;
+
+    data.goals.push({
+      id: uid("goal"),
+      title: result.title,
+      date: result.date,
+      done: false
+    });
+
+    saveData();
+    renderGoals();
+    showMessage("目標を追加しました。");
+  }
+
+  async function addGoalNode() {
+    const options = data.goalNodes.map(node =>
+      `<option value="${escapeHTML(node.id)}">${escapeHTML(node.title)}</option>`
+    ).join("");
+
+    const result = await dialog("スキルツリーに追加", `
+      <label>ノード名
+        <input name="title" required maxlength="80" placeholder="例：基礎学力を完成させる">
+      </label>
+      <label>接続先
+        <select name="parentId">
+          <option value="">月への最初の目標</option>
+          ${options}
+        </select>
+      </label>
+    `);
+
+    if (!result || !result.title) return;
+
+    data.goalNodes.push({
+      id: uid("node"),
+      title: result.title,
+      parentId: result.parentId || null,
+      done: false
+    });
+
+    saveData();
+    renderGoals();
+    showMessage("スキルツリーにノードを追加しました。");
+  }
+
+  async function addHabit() {
+    const result = await dialog("習慣を追加", `
+      <label>習慣名
+        <input name="title" required maxlength="100" placeholder="例：毎日英単語を復習">
+      </label>
+    `);
+
+    if (!result || !result.title) return;
+
+    data.habits.push({
+      id: uid("habit"),
+      title: result.title,
+      dates: []
+    });
+
+    saveData();
+    renderHabits();
+    showMessage("習慣を追加しました。");
+  }
+
+  function renderHabits() {
+    const list = $("#habit-list");
+    if (!list) return;
+
+    list.innerHTML = data.habits.map(habit => {
+      const doneToday = habit.dates.includes(todayKey());
+
+      return `
+        <article class="habit-row">
+          <label>
+            <input type="checkbox" data-habit="${escapeHTML(habit.id)}"
+              ${doneToday ? "checked" : ""}>
+            ${escapeHTML(habit.title)}
+          </label>
+          <small>達成 ${habit.dates.length}日</small>
+        </article>
+      `;
+    }).join("") || "<p>習慣を登録しましょう。</p>";
+  }
+
+  function awardStudyExp(minutes) {
+    const oldLevel = data.rocket.level;
+    data.rocket.exp += Math.max(0, minutes);
+
+    while (data.rocket.exp >= 100) {
+      data.rocket.exp -= 100;
+      data.rocket.level += 1;
+    }
+
+    if (data.rocket.level > oldLevel) {
+      showMessage(`ロケットがレベル ${data.rocket.level} に上がりました！`);
+    }
+  }
+
+  function renderRocket() {
+    setText("#rocket-name", data.rocket.name);
+    setText("#rocket-level", `Lv.${data.rocket.level}`);
+    setText("#rocket-exp-label", `${data.rocket.exp}/100 EXP`);
+    setWidth("#rocket-exp-progress", data.rocket.exp);
+
+    const missionList = $("#mission-list");
+    if (missionList) {
+      missionList.innerHTML = data.rocket.missions.map(mission => `
+        <article>${escapeHTML(mission.title)}</article>
+      `).join("") || "<p>ミッションは今後追加できます。</p>";
+    }
+
+    const partsList = $("#rocket-parts-list");
+    if (partsList) {
+      partsList.innerHTML = data.rocket.parts.map(part =>
+        `<article>${escapeHTML(part.title)}</article>`
+      ).join("") || "<p>パーツはまだありません。</p>";
+    }
+
+    const explorationList = $("#space-exploration-list");
+    if (explorationList) {
+      explorationList.innerHTML = data.rocket.explorations.map(item =>
+        `<article>${escapeHTML(item.title)}</article>`
+      ).join("") || "<p>学習を積み重ねて宇宙を目指しましょう。</p>";
+    }
+  }
+
+  function renderEconomy() {
+    setText("#economy-balance",
+      `${Number(data.economy.balance || 0).toLocaleString()} コスモ`);
+
+    setText("#economy-net-worth",
+      `${Number(data.economy.balance || 0).toLocaleString()} コスモ`);
+
+    const loans = $("#economy-loan-list");
+    if (loans) {
+      loans.innerHTML = data.economy.loans.map(loan => `
+        <article>
+          <strong>${escapeHTML(loan.title || "借入")}</strong>
+          <span>${Number(loan.amount || 0).toLocaleString()} コスモ</span>
+        </article>
+      `).join("") || "<p>借入はありません。</p>";
+    }
+
+    const transactions = $("#economy-transaction-list");
+    if (transactions) {
+      transactions.innerHTML = [...data.economy.transactions]
+        .reverse().slice(0, 50).map(item => `
+          <article>
+            <span>${escapeHTML(item.date)}</span>
+            <span>${escapeHTML(item.title)}</span>
+            <strong>${item.amount >= 0 ? "+" : ""}${Number(item.amount).toLocaleString()}</strong>
+          </article>
+        `).join("") || "<p>取引履歴はありません。</p>";
+    }
+  }
+
+  async function economyTransaction(type) {
     const labels = {
       deposit: "預け入れ",
       withdraw: "引き出し",
       borrow: "借入"
     };
 
-    openDialog(labels[type], [
-      { name: "amount", label: "金額", type: "number", min: "1", step: "1", required: true },
-      { name: "note", label: "メモ" }
-    ], values => {
-      const amount = Math.floor(Number(values.amount));
+    const result = await dialog(`${labels[type]}する`, `
+      <label>金額
+        <input name="amount" type="number" min="1" step="1" required>
+      </label>
+      <label>内容
+        <input name="title" maxlength="100" placeholder="${labels[type]}">
+      </label>
+    `);
 
-      if (!Number.isFinite(amount) || amount <= 0) {
-        showMessage("金額を正しく入力してください。");
-        return;
-      }
+    if (!result) return;
 
-      if (type === "withdraw" && amount > data.economy.balance) {
-        showMessage("残高が足りません。");
-        return;
-      }
+    const amount = Math.floor(Number(result.amount));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      showMessage("正しい金額を入力してください。");
+      return;
+    }
 
-      if (type === "deposit") data.economy.balance += amount;
-      if (type === "withdraw") data.economy.balance -= amount;
+    if (type === "withdraw" && amount > data.economy.balance) {
+      showMessage("残高が不足しています。");
+      return;
+    }
 
-      data.economy.transactions.push({
-        id: makeId(),
-        type,
+    if (type === "deposit") data.economy.balance += amount;
+    if (type === "withdraw") data.economy.balance -= amount;
+
+    if (type === "borrow") {
+      data.economy.loans.push({
+        id: uid("loan"),
+        title: result.title || "借入",
         amount,
-        note: values.note,
-        date: today()
+        date: todayKey()
+      });
+      data.economy.balance += amount;
+    }
+
+    data.economy.transactions.push({
+      id: uid("transaction"),
+      date: todayKey(),
+      title: result.title || labels[type],
+      amount: type === "withdraw" ? -amount : amount,
+      type
+    });
+
+    saveData();
+    renderEconomy();
+    showMessage("取引を保存しました。");
+  }
+
+  async function addCountdown() {
+    const result = await dialog("カウントダウンを追加", `
+      <label>イベント名
+        <input name="title" required maxlength="100" placeholder="例：定期考査">
+      </label>
+      <label>日付
+        <input name="date" type="date" required>
+      </label>
+    `);
+
+    if (!result || !result.title || !result.date) return;
+
+    data.countdowns.push({
+      id: uid("countdown"),
+      title: result.title,
+      date: result.date
+    });
+
+    saveData();
+    renderCountdown();
+    renderHomeCountdown();
+    showMessage("カウントダウンを追加しました。");
+  }
+
+  function renderCountdown() {
+    const list = $("#countdown-list");
+    if (!list) return;
+
+    const today = parseDate(todayKey());
+
+    list.innerHTML = data.countdowns.map(item => {
+      const days = Math.ceil(
+        (parseDate(item.date) - today) / 86400000
+      );
+
+      return `
+        <article class="countdown-card">
+          <div>
+            <strong>${escapeHTML(item.title)}</strong>
+            <small>${escapeHTML(item.date)}</small>
+          </div>
+          <strong>${days < 0 ? `${Math.abs(days)}日超過` : `あと${days}日`}</strong>
+          <button type="button" data-delete-countdown="${escapeHTML(item.id)}">削除</button>
+        </article>
+      `;
+    }).join("") || "<p>イベントを追加してください。</p>";
+  }
+
+  function renderNotifications() {
+    const list = $("#notification-list");
+    if (!list) return;
+
+    list.innerHTML = data.notifications.map(item => `
+      <article>
+        <strong>${escapeHTML(item.title)}</strong>
+        <p>${escapeHTML(item.message || "")}</p>
+      </article>
+    `).join("") || "<p>通知はありません。</p>";
+  }
+
+  async function enableNotifications() {
+    if (!("Notification" in window)) {
+      showMessage("この環境では通知に対応していません。");
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+
+      if (permission === "granted") {
+        new Notification("One for All COSMOS", {
+          body: "通知を有効にしました。"
+        });
+        showMessage("通知を有効にしました。");
+      } else {
+        showMessage("通知は許可されませんでした。");
+      }
+    } catch (error) {
+      console.error(error);
+      showMessage("通知を有効にできませんでした。");
+    }
+  }
+
+  function renderSettings() {
+    setValue("#setting-daily-goal", data.settings.dailyGoal);
+    setValue("#setting-weekly-goal", data.settings.weeklyGoal);
+    setValue("#setting-minimum-action", data.settings.minimumAction);
+    setChecked("#setting-animations", data.settings.animations);
+    setValue("#setting-theme", data.settings.theme);
+
+    $$('input[name="bottomShortcut"]').forEach(input => {
+      input.checked = data.settings.shortcuts.includes(input.value);
+    });
+
+    renderBottomNavigation();
+  }
+
+  function saveSettings(event) {
+    event?.preventDefault();
+
+    data.settings.dailyGoal = Math.max(
+      1, Number($("#setting-daily-goal")?.value) || 120
+    );
+
+    data.settings.weeklyGoal = Math.max(
+      1, Number($("#setting-weekly-goal")?.value) || 840
+    );
+
+    data.settings.minimumAction = Math.max(
+      1, Number($("#setting-minimum-action")?.value) || 5
+    );
+
+    data.settings.animations = $("#setting-animations")?.checked ?? true;
+    data.settings.theme = $("#setting-theme")?.value || "cosmos";
+
+    data.settings.shortcuts = $$('input[name="bottomShortcut"]:checked')
+      .map(input => input.value);
+
+    document.body.classList.toggle(
+      "animations-disabled",
+      !data.settings.animations
+    );
+
+    document.documentElement.dataset.theme = data.settings.theme;
+
+    saveData();
+    renderBottomNavigation();
+    renderHome();
+    showMessage("設定を保存しました。");
+  }
+
+  function renderBottomNavigation() {
+    const nav = $("#bottom-navigation");
+    if (!nav) return;
+
+    const shortcuts = data.settings.shortcuts || [];
+    const buttons = $$("[data-shortcut]", nav);
+
+    buttons.forEach(button => {
+      const key = button.dataset.shortcut;
+      button.hidden = !shortcuts.includes(key);
+    });
+
+    nav.hidden = shortcuts.length === 0;
+  }
+
+  function renderAll() {
+    renderHome();
+    renderStudy();
+    renderCalendar();
+    renderStatistics();
+    renderGoals();
+    renderRocket();
+    renderEconomy();
+    renderCountdown();
+    renderNotifications();
+    renderBottomNavigation();
+  }
+
+  function setText(selector, value) {
+    const element = $(selector);
+    if (element) element.textContent = value;
+  }
+
+  function setValue(selector, value) {
+    const element = $(selector);
+    if (element) element.value = value;
+  }
+
+  function setChecked(selector, value) {
+    const element = $(selector);
+    if (element) element.checked = Boolean(value);
+  }
+
+  function setWidth(selector, percent) {
+    const element = $(selector);
+    if (element) {
+      element.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+      element.setAttribute("aria-valuenow", String(Math.round(percent)));
+    }
+  }
+
+  function bindEvents() {
+    $("#menu-open")?.addEventListener("click", openMenu);
+    $("#menu-close")?.addEventListener("click", closeMenu);
+    $("#menu-backdrop")?.addEventListener("click", closeMenu);
+
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape") closeMenu();
+    });
+
+    $$("[data-view]").forEach(button => {
+      button.addEventListener("click", () => {
+        showView(button.dataset.view);
+      });
+    });
+
+    $$("[data-action]").forEach(button => {
+      button.addEventListener("click", () => {
+        const action = button.dataset.action;
+
+        if (action === "start-study") {
+          showView("study");
+          startTimer();
+        }
+
+        if (action === "timer-start") startTimer();
+        if (action === "timer-pause") pauseTimer();
+        if (action === "timer-finish") finishTimer();
+      });
+    });
+
+    $("#manual-study-form")?.addEventListener("submit", event => {
+      event.preventDefault();
+
+      const success = addStudyRecord({
+        subject: $("#manual-study-subject")?.value,
+        item: $("#manual-study-item")?.value,
+        date: $("#manual-study-date")?.value || todayKey(),
+        minutes: $("#manual-study-minutes")?.value,
+        note: $("#manual-study-note")?.value
       });
 
-      saveData();
-      renderEconomy();
-      showMessage("取引を保存しました。");
+      if (success) event.target.reset();
+
+      const dateField = $("#manual-study-date");
+      if (dateField) dateField.value = todayKey();
+    });
+
+    $("#add-subject")?.addEventListener("click", addSubject);
+    $("#add-study-item")?.addEventListener("click", addStudyItem);
+
+    $("#add-event")?.addEventListener("click", addEvent);
+    $("#calendar-prev")?.addEventListener("click", () => {
+      calendarMonth = new Date(
+        calendarMonth.getFullYear(),
+        calendarMonth.getMonth() - 1,
+        1
+      );
+      renderCalendar();
+    });
+
+    $("#calendar-next")?.addEventListener("click", () => {
+      calendarMonth = new Date(
+        calendarMonth.getFullYear(),
+        calendarMonth.getMonth() + 1,
+        1
+      );
+      renderCalendar();
+    });
+
+    $("#calendar-grid")?.addEventListener("click", event => {
+      const button = event.target.closest("[data-calendar-date]");
+      if (!button) return;
+
+      selectedDate = button.dataset.calendarDate;
+      renderCalendar();
+    });
+
+    $("#edit-timetable")?.addEventListener("click", editTimetable);
+    $("#add-task")?.addEventListener("click", addTask);
+
+    $("#add-goal")?.addEventListener("click", addGoal);
+    $("#add-goal-map-node")?.addEventListener("click", addGoalNode);
+    $("#add-habit")?.addEventListener("click", addHabit);
+
+    $("#add-countdown")?.addEventListener("click", addCountdown);
+    $("#enable-notifications")?.addEventListener("click", enableNotifications);
+
+    $("#settings-study-form")?.addEventListener("submit", saveSettings);
+
+    $("#economy-deposit")?.addEventListener("click", () => economyTransaction("deposit"));
+    $("#economy-withdraw")?.addEventListener("click", () => economyTransaction("withdraw"));
+    $("#economy-borrow")?.addEventListener("click", () => economyTransaction("borrow"));
+
+    $("#cosmos-dialog-confirm")?.addEventListener("click", event => {
+      event.preventDefault();
+
+      const content = $("#cosmos-dialog-content");
+      const form = content?.querySelector("form");
+      const fields = content?.querySelectorAll("input, select, textarea") || [];
+
+      for (const field of fields) {
+        if (!field.reportValidity()) return;
+      }
+
+      const result = {};
+      fields.forEach(field => {
+        if (field.name) result[field.name] = field.value.trim();
+      });
+
+      closeDialog(result);
+    });
+
+    $("#cosmos-dialog")?.addEventListener("click", event => {
+      const element = $("#cosmos-dialog");
+      if (event.target === element) closeDialog(null);
+    });
+
+    $("#cosmos-dialog")?.addEventListener("cancel", event => {
+      event.preventDefault();
+      closeDialog(null);
+    });
+
+    document.addEventListener("click", event => {
+      const button = event.target.closest("button");
+      if (!button) return;
+
+      if (button.dataset.deleteRecord) {
+        if (!confirm("この学習記録を削除しますか？")) return;
+
+        data.studyRecords = data.studyRecords.filter(record =>
+          record.id !== button.dataset.deleteRecord
+        );
+
+        saveData();
+        renderAll();
+        showMessage("学習記録を削除しました。");
+      }
+
+      if (button.dataset.removeSubject) {
+        const subject = data.subjects.find(item =>
+          item.id === button.dataset.removeSubject
+        );
+
+        if (!subject || !confirm(
+          `教科「${subject.name}」を削除しますか？過去の記録は残ります。`
+        )) return;
+
+        data.subjects = data.subjects.filter(item =>
+          item.id !== subject.id
+        );
+
+        saveData();
+        renderStudy();
+      }
+
+      if (button.dataset.deleteEvent) {
+        data.events = data.events.filter(item =>
+          item.id !== button.dataset.deleteEvent
+        );
+
+        saveData();
+        renderCalendar();
+        renderHome();
+      }
+
+      if (button.dataset.deleteTask) {
+        data.tasks = data.tasks.filter(item =>
+          item.id !== button.dataset.deleteTask
+        );
+
+        saveData();
+        renderTasks();
+        renderHome();
+      }
+
+      if (button.dataset.deleteGoal) {
+        data.goals = data.goals.filter(item =>
+          item.id !== button.dataset.deleteGoal
+        );
+
+        saveData();
+        renderGoals();
+      }
+
+      if (button.dataset.deleteCountdown) {
+        data.countdowns = data.countdowns.filter(item =>
+          item.id !== button.dataset.deleteCountdown
+        );
+
+        saveData();
+        renderCountdown();
+        renderHomeCountdown();
+      }
+    });
+
+    document.addEventListener("change", event => {
+      const input = event.target;
+
+      if (input.matches("[data-task-done]")) {
+        const task = data.tasks.find(item =>
+          item.id === input.dataset.taskDone
+        );
+
+        if (task) task.done = input.checked;
+
+        saveData();
+        renderTasks();
+      }
+
+      if (input.matches("[data-goal-done]")) {
+        const goal = data.goals.find(item =>
+          item.id === input.dataset.goalDone
+        );
+
+        if (goal) goal.done = input.checked;
+
+        saveData();
+        renderGoals();
+      }
+
+      if (input.matches("[data-habit]")) {
+        const habit = data.habits.find(item =>
+          item.id === input.dataset.habit
+        );
+
+        if (!habit) return;
+
+        habit.dates = habit.dates.filter(date => date !== todayKey());
+
+        if (input.checked) habit.dates.push(todayKey());
+
+        saveData();
+        renderHabits();
+      }
+    });
+
+    window.addEventListener("resize", () => {
+      if (currentView === "statistics") renderStatistics();
+      if (currentView === "goals") renderGoalTree();
     });
   }
 
-  function renderEconomy() {
-    const balance = $("#economy-balance");
-    const netWorth = $("#economy-net-worth");
-
-    if (balance) balance.textContent = `${data.economy.balance.toLocaleString()} 円`;
-    if (netWorth) netWorth.textContent = `${data.economy.balance.toLocaleString()} 円`;
-
-    const list = $("#economy-transaction-list");
-    if (list) {
-      list.innerHTML = data.economy.transactions.slice().reverse().map(item => `
-        <article>
-          <strong>${escapeHTML(item.type)}</strong>
-          <span>${Number(item.amount).toLocaleString()}円</span>
-          <small>${escapeHTML(item.date)}</small>
-        </article>
-      `).join("") || "<p>取引履歴はありません。</p>";
-    }
-  }
-
-  /* ---------------------------------------------------------
-     初期化
-     --------------------------------------------------------- */
-
   function init() {
-    ensureScheduleView();
+    $$(".page-section").forEach(section => {
+      const active = section.id === "view-home";
+      section.hidden = !active;
+      section.classList.toggle("active", active);
+      section.setAttribute("aria-hidden", String(!active));
+    });
+
+    const dialogElement = $("#cosmos-dialog");
+
+    if (dialogElement && !dialogElement.open) {
+      dialogElement.removeAttribute("open");
+    }
+
     bindEvents();
 
-    if (data.timer.running && data.timer.start) {
-      startTimerDisplay();
-    }
+    document.body.classList.toggle(
+      "animations-disabled",
+      !data.settings.animations
+    );
 
-    renderStudy();
-    renderSchedule();
-    renderCalendar();
-    renderGoals();
-    renderHome();
-    renderTasks();
-    renderCountdownList();
-    renderEconomy();
+    document.documentElement.dataset.theme = data.settings.theme || "cosmos";
 
+    renderAll();
     showView("home");
 
-    console.log("One for All COSMOS UI initialized.");
+    console.info("One for All COSMOS: ui.js initialized");
   }
 
   if (document.readyState === "loading") {
