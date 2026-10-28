@@ -295,6 +295,10 @@ import {
 
     if (menu) {
       menu.hidden = false;
+
+      // メニューを開くときは inert を解除する
+      menu.inert = false;
+
       menu.classList.add("is-open");
       menu.setAttribute("aria-hidden", "false");
     }
@@ -311,13 +315,21 @@ import {
     const menu = $("#side-menu");
     const backdrop = $("#menu-backdrop");
 
-    menu?.classList.remove("is-open");
-    menu?.setAttribute("aria-hidden", "true");
-    backdrop?.classList.remove("is-visible");
-    $("#menu-open")?.setAttribute("aria-expanded", "false");
+    if (menu) {
+      menu.classList.remove("is-open");
+      menu.setAttribute("aria-hidden", "true");
 
-    if (menu) menu.hidden = true;
-    if (backdrop) backdrop.hidden = true;
+      // 閉じたメニューを操作できないようにする
+      menu.inert = true;
+      menu.hidden = true;
+    }
+
+    if (backdrop) {
+      backdrop.classList.remove("is-visible");
+      backdrop.hidden = true;
+    }
+
+    $("#menu-open")?.setAttribute("aria-expanded", "false");
   }
 
   function showView(name) {
