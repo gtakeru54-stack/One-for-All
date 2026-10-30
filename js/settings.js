@@ -4,16 +4,6 @@
    js/settings.js
 
    APPLICATION SETTINGS SYSTEM
-
-   ・アプリ設定の取得・保存
-   ・テーマ設定
-   ・学習目標設定
-   ・アニメーション設定
-   ・通知設定
-   ・設定の初期化・リセット
-   ・設定変更の検証
-
-   保存先：store.js の settings
    ========================================================= */
 
 "use strict";
@@ -25,10 +15,11 @@ import { loadData, saveData } from "./store.js";
    ========================================================= */
 
 export const DEFAULT_SETTINGS = Object.freeze({
-  theme: "dark",
+  theme: "cosmos",
 
   dailyTarget: 60,
   weeklyTarget: 420,
+  minimumActionMinutes: 5,
 
   animations: true,
 
@@ -58,11 +49,19 @@ export const DEFAULT_SETTINGS = Object.freeze({
   appearance: {
     compactMode: false,
     showSeconds: true
-  }
+  },
+
+  bottomShortcuts: [
+    "home",
+    "study",
+    "calendar",
+    "statistics",
+    "goals"
+  ]
 });
 
 /* =========================================================
-   設定のコピー
+   初期値コピー
    ========================================================= */
 
 function cloneDefaults() {
@@ -70,18 +69,10 @@ function cloneDefaults() {
 }
 
 /* =========================================================
-   オブジェクトの安全な統合
+   オブジェクト統合
    ========================================================= */
 
 function mergeSettings(defaults, saved) {
-  if (
-    !defaults ||
-    typeof defaults !== "object" ||
-    Array.isArray(defaults)
-  ) {
-    return saved;
-  }
-
   const result = { ...defaults };
 
   if (
@@ -93,17 +84,23 @@ function mergeSettings(defaults, saved) {
   }
 
   for (const key of Object.keys(saved)) {
+    const defaultValue = defaults[key];
+    const savedValue = saved[key];
+
     if (
-      defaults[key] &&
-      typeof defaults[key] === "object" &&
-      !Array.isArray(defaults[key])
+      defaultValue &&
+      typeof defaultValue === "object" &&
+      !Array.isArray(defaultValue) &&
+      savedValue &&
+      typeof savedValue === "object" &&
+      !Array.isArray(savedValue)
     ) {
       result[key] = mergeSettings(
-        defaults[key],
-        saved[key]
+        defaultValue,
+        savedValue
       );
     } else {
-      result[key] = saved[key];
+      result[key] = savedValue;
     }
   }
 
@@ -142,14 +139,13 @@ export function saveSettings(settings) {
   );
 
   validateSettings(merged);
-
   saveData("settings", merged);
 
   return merged;
 }
 
 /* =========================================================
-   設定値の取得
+   個別設定取得
    ========================================================= */
 
 export function getSetting(key, fallback = undefined) {
@@ -158,7 +154,6 @@ export function getSetting(key, fallback = undefined) {
   }
 
   const settings = getSettings();
-
   const keys = key.split(".");
   let value = settings;
 
@@ -178,11 +173,7 @@ export function getSetting(key, fallback = undefined) {
 }
 
 /* =========================================================
-   設定値の変更
-
-   例：
-   setSetting("theme", "dark")
-   setSetting("notifications.enabled", true)
+   個別設定変更
    ========================================================= */
 
 export function setSetting(key, value) {
@@ -228,7 +219,7 @@ export function setSetting(key, value) {
 }
 
 /* =========================================================
-   設定の検証
+   設定検証
    ========================================================= */
 
 export function validateSettings(settings) {
@@ -236,7 +227,7 @@ export function validateSettings(settings) {
     throw new Error("設定データが不正です。");
   }
 
-  if (!["dark", "light", "system"].includes(settings.theme)) {
+  if (!["cosmos", "dark"].includes(settings.theme)) {
     throw new Error("テーマ設定が不正です。");
   }
 
@@ -254,12 +245,20 @@ export function validateSettings(settings) {
     throw new Error("1週間の学習目標が不正です。");
   }
 
+  if (
+    !Number.isFinite(settings.minimumActionMinutes) ||
+    settings.minimumActionMinutes < 1 ||
+    settings.minimumActionMinutes > 60
+  ) {
+    throw new Error("最小行動時間は1〜60分で指定してください。");
+  }
+
   if (typeof settings.animations !== "boolean") {
     throw new Error("アニメーション設定が不正です。");
   }
 
   if (
-    !["day", "week", "month"].includes(
+    !["day", "week", "month", "all"].includes(
       settings.statistics.defaultPeriod
     )
   ) {
@@ -282,19 +281,51 @@ export function validateSettings(settings) {
     throw new Error("週の開始曜日の設定が不正です。");
   }
 
+  if (!Array.isArray(settings.bottomShortcuts)) {
+    throw new Error("下部メニューの設定が不正です。");
+  }
+
+  const allowedViews = [
+    "home",
+    "study",
+    "calendar",
+    "statistics",
+    "goals",
+    "rocket",
+    "economy",
+    "countdown",
+    "notifications",
+    "settings"
+  ];
+
+  if (
+    settings.bottomShortcuts.some(
+      view => !allowedViews.includes(view)
+    )
+  ) {
+    throw new Error("存在しない画面が下部メニューに指定されています。");
+  }
+
+  if (
+    new Set(settings.bottomShortcuts).size !==
+    settings.bottomShortcuts.length
+  ) {
+    throw new Error("下部メニューに重複があります。");
+  }
+
   return true;
 }
 
 /* =========================================================
-   テーマ設定
+   テーマ
    ========================================================= */
 
 export function getTheme() {
-  return getSetting("theme", "dark");
+  return getSetting("theme", "cosmos");
 }
 
 export function setTheme(theme) {
-  if (!["dark", "light", "system"].includes(theme)) {
+  if (!["cosmos", "dark"].includes(theme)) {
     throw new Error("利用できないテーマです。");
   }
 
@@ -302,7 +333,7 @@ export function setTheme(theme) {
 }
 
 /* =========================================================
-   学習目標設定
+   学習目標
    ========================================================= */
 
 export function getDailyTarget() {
@@ -334,7 +365,29 @@ export function setWeeklyTarget(minutes) {
 }
 
 /* =========================================================
-   アニメーション設定
+   最小行動時間
+   ========================================================= */
+
+export function getMinimumActionMinutes() {
+  return getSetting("minimumActionMinutes", 5);
+}
+
+export function setMinimumActionMinutes(minutes) {
+  const value = Number(minutes);
+
+  if (
+    !Number.isInteger(value) ||
+    value < 1 ||
+    value > 60
+  ) {
+    throw new Error("最小行動時間は1〜60分で指定してください。");
+  }
+
+  return setSetting("minimumActionMinutes", value);
+}
+
+/* =========================================================
+   アニメーション
    ========================================================= */
 
 export function areAnimationsEnabled() {
@@ -350,12 +403,7 @@ export function setAnimationsEnabled(enabled) {
    ========================================================= */
 
 export function getNotificationSettings() {
-  return getSetting("notifications", {
-    enabled: false,
-    studyReminder: false,
-    calendarReminder: false,
-    goalReminder: false
-  });
+  return getSetting("notifications");
 }
 
 export function setNotificationSettings(updates = {}) {
@@ -390,10 +438,7 @@ export function setNotificationSettings(updates = {}) {
    ========================================================= */
 
 export function getStatisticsSettings() {
-  return getSetting("statistics", {
-    defaultPeriod: "week",
-    chartGrouping: "subject"
-  });
+  return getSetting("statistics");
 }
 
 export function setStatisticsSettings(updates = {}) {
@@ -415,10 +460,7 @@ export function setStatisticsSettings(updates = {}) {
    ========================================================= */
 
 export function getCalendarSettings() {
-  return getSetting("calendar", {
-    weekStartsOn: 1,
-    showCompletedTasks: true
-  });
+  return getSetting("calendar");
 }
 
 export function setCalendarSettings(updates = {}) {
@@ -440,10 +482,7 @@ export function setCalendarSettings(updates = {}) {
    ========================================================= */
 
 export function getAppearanceSettings() {
-  return getSetting("appearance", {
-    compactMode: false,
-    showSeconds: true
-  });
+  return getSetting("appearance");
 }
 
 export function setAppearanceSettings(updates = {}) {
@@ -467,14 +506,35 @@ export function setAppearanceSettings(updates = {}) {
 }
 
 /* =========================================================
-   設定の初期化
+   下部メニュー
+   ========================================================= */
 
-   既存設定がある場合は削除せず、
-   新しい設定項目だけを補完する。
+export function getBottomShortcuts() {
+  return [...getSetting("bottomShortcuts", ["home"])];
+}
+
+export function setBottomShortcuts(shortcuts) {
+  if (!Array.isArray(shortcuts)) {
+    throw new Error("メニュー項目を配列で指定してください。");
+  }
+
+  const settings = getSettings();
+
+  settings.bottomShortcuts = [...shortcuts];
+
+  validateSettings(settings);
+  saveData("settings", settings);
+
+  return [...settings.bottomShortcuts];
+}
+
+/* =========================================================
+   初期化
    ========================================================= */
 
 export function initializeSettings() {
   const saved = loadData("settings", {});
+
   const settings = mergeSettings(
     cloneDefaults(),
     saved
@@ -487,7 +547,7 @@ export function initializeSettings() {
 }
 
 /* =========================================================
-   設定を初期値に戻す
+   初期値に戻す
    ========================================================= */
 
 export function resetSettings() {
@@ -499,7 +559,7 @@ export function resetSettings() {
 }
 
 /* =========================================================
-   設定のエクスポート
+   エクスポート
    ========================================================= */
 
 export function exportSettings() {
@@ -511,7 +571,7 @@ export function exportSettings() {
 }
 
 /* =========================================================
-   設定のインポート
+   インポート
    ========================================================= */
 
 export function importSettings(json) {
@@ -565,6 +625,9 @@ export default {
   getWeeklyTarget,
   setWeeklyTarget,
 
+  getMinimumActionMinutes,
+  setMinimumActionMinutes,
+
   areAnimationsEnabled,
   setAnimationsEnabled,
 
@@ -579,6 +642,9 @@ export default {
 
   getAppearanceSettings,
   setAppearanceSettings,
+
+  getBottomShortcuts,
+  setBottomShortcuts,
 
   initializeSettings,
   resetSettings,
