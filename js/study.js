@@ -1,987 +1,1132 @@
-
 /* =========================================================
-   ONE FOR ALL COSMOS
+   ALGOL — STUDY CONSTELLATION
    js/study.js
 
-   学習記録システム
-   ・科目 / 学習項目の管理
-   ・学習タイマー
-   ・手動での学習時間追加
-   ・今日 / 1週間 / 全期間の集計
-   ・学習履歴
-   ・データの保存
+   学習管理システム
 
-   保存処理：既存の js/store.js を利用
+   役割:
+   - 科目管理
+   - 学習項目管理
+   - 学習タイマー
+   - 手動学習記録
+   - 学習記録の編集・削除
+   - 学習時間集計
+
+   保存処理は store.js に統一する。
    ========================================================= */
 
-"use strict";
-
-import { store } from "./store.js";
+import {
+  loadData,
+  saveData
+} from "./store.js";
 
 /* =========================================================
-   1. 基本設定
+   01. CONSTANTS
    ========================================================= */
 
-const DEFAULT_SUBJECTS = [
-  {
-    id: "math",
-    name: "数学",
-    color: "#6C9EFF",
-    items: []
-  },
-  {
-    id: "english",
-    name: "英語",
-    color: "#B69CFF",
-    items: []
-  },
-  {
-    id: "japanese",
-    name: "国語",
-    color: "#FF9E9E",
-    items: []
-  },
-  {
-    id: "science",
-    name: "理科",
-    color: "#65D6B0",
-    items: []
-  },
-  {
-    id: "social",
-    name: "社会",
-    color: "#FFC46B",
-    items: []
-  }
+const STUDY_KEYS = {
+  subjects: "subjects",
+  items: "studyItems",
+  records: "studyRecords"
+};
+
+const TIMER_STORAGE_KEY = "algol-active-study-timer-v1";
+
+const DEFAULT_SUBJECT_COLOR = "#91aaff";
+
+const SUBJECT_COLORS = [
+  "#91aaff",
+  "#72e1ed",
+  "#b49aff",
+  "#ed9ed4",
+  "#7fe0b2",
+  "#f4d58a",
+  "#ff929e",
+  "#91c8ff",
+  "#b7d78a",
+  "#e5a77d"
 ];
 
-const MAX_HISTORY = 10000;
-
 /* =========================================================
-   2. 共通関数
+   02. UTILITIES
    ========================================================= */
 
 function createId(prefix = "study") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return `${prefix}_${crypto.randomUUID()}`;
+  }
+
+  return `${prefix}_${Date.now()}_${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+}
+
+function nowISO() {
+  return new Date().toISOString();
+}
+
+function isValidDate(value) {
   return (
-    prefix +
-    "_" +
-    Date.now().toString(36) +
-    "_" +
-    Math.random().toString(36).slice(2, 9)
+    typeof value === "string" &&
+    !Number.isNaN(new Date(value).getTime())
   );
 }
 
-function now() {
-  return Date.now();
+function normalizeMinutes(value) {
+  const minutes = Number(value);
+
+  if (!Number.isFinite(minutes)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.floor(minutes));
 }
 
-function isValidMinutes(value) {
-  return (
-    typeof value === "number" &&
-    Number.isFinite(value) &&
-    value > 0 &&
-    value <= 1440
-  );
+function normalizeText(value) {
+  return String(value ?? "").trim();
 }
 
-function localDateKey(timestamp = now()) {
-  const date = new Date(timestamp);
+function getDateKey(date = new Date()) {
+  const d = new Date(date);
 
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
 }
 
-function startOfLocalDay(timestamp = now()) {
-  const date = new Date(timestamp);
-
-  date.setHours(0, 0, 0, 0);
-
-  return date.getTime();
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
 }
 
-function normalizeSubject(subject) {
-  return {
-    id: String(subject.id || createId("subject")),
-    name: String(subject.name || "未分類"),
-    color: String(subject.color || "#8B9BB4"),
-    items: Array.isArray(subject.items)
-      ? subject.items.map(item => {
-          if (typeof item === "string") {
-            return {
-              id: createId("item"),
-              name: item
-            };
-          }
+function assertText(value, label) {
+  const text = normalizeText(value);
 
-          return {
-            id: String(item.id || createId("item")),
-            name: String(item.name || "未設定")
-          };
-        })
-      : []
-  };
-}
-
-function normalizeRecord(record) {
-  const minutes = Number(record.minutes);
-
-  if (!Number.isFinite(minutes) || minutes <= 0) {
-    return null;
+  if (!text) {
+    throw new Error(`${label}を入力してください。`);
   }
 
-  const timestamp = Number(record.timestamp) || now();
-
-  return {
-    id: String(record.id || createId("record")),
-    subjectId: String(record.subjectId || "other"),
-    subjectName: String(record.subjectName || "未分類"),
-    itemId: String(record.itemId || ""),
-    itemName: String(record.itemName || "自由学習"),
-    minutes,
-    timestamp,
-    date: String(record.date || localDateKey(timestamp)),
-    source: record.source === "manual" ? "manual" : "timer",
-    note: String(record.note || "")
-  };
+  return text;
 }
 
 /* =========================================================
-   3. データ読み込み
+   03. DATA ACCESS
    ========================================================= */
 
-function loadStudyData() {
-  const data = store.study.load({});
+function getSubjects() {
+  const data = loadData(STUDY_KEYS.subjects, []);
 
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
-    return {
-      version: 1,
-      subjects: DEFAULT_SUBJECTS.map(normalizeSubject),
-      records: []
-    };
-  }
-
-  const subjects = Array.isArray(data.subjects)
-    ? data.subjects.map(normalizeSubject)
-    : DEFAULT_SUBJECTS.map(normalizeSubject);
-
-  const records = Array.isArray(data.records)
-    ? data.records
-        .map(normalizeRecord)
-        .filter(Boolean)
-        .slice(-MAX_HISTORY)
-    : [];
-
-  return {
-    ...data,
-    version: 1,
-    subjects,
-    records
-  };
+  return Array.isArray(data) ? data : [];
 }
 
-function saveStudyData(data) {
-  return store.study.save(data);
+function getItems() {
+  const data = loadData(STUDY_KEYS.items, []);
+
+  return Array.isArray(data) ? data : [];
 }
 
-function mutateStudyData(mutator) {
-  const data = loadStudyData();
+function getRecords() {
+  const data = loadData(STUDY_KEYS.records, []);
 
-  const result = mutator(data);
+  return Array.isArray(data) ? data : [];
+}
 
-  if (result === false) {
-    return false;
-  }
+function saveSubjects(data) {
+  saveData(STUDY_KEYS.subjects, data);
+}
 
-  if (!saveStudyData(data)) {
-    throw new Error(
-      "学習データを保存できませんでした。端末の保存容量や設定を確認してください。"
-    );
-  }
+function saveItems(data) {
+  saveData(STUDY_KEYS.items, data);
+}
 
-  return result === undefined ? true : result;
+function saveRecords(data) {
+  saveData(STUDY_KEYS.records, data);
 }
 
 /* =========================================================
-   4. 科目管理
+   04. SUBJECT MANAGEMENT
    ========================================================= */
 
-export function getSubjects() {
-  return loadStudyData().subjects.map(subject => ({
-    ...subject,
-    items: subject.items.map(item => ({ ...item }))
-  }));
+export function getAllSubjects() {
+  return clone(getSubjects());
 }
 
-export function addSubject(name, color = "#8B9BB4") {
-  const subjectName = String(name || "").trim();
+export function getSubject(subjectId) {
+  return getSubjects().find(
+    subject => subject.id === subjectId
+  ) || null;
+}
 
-  if (!subjectName) {
-    throw new Error("科目名を入力してください。");
-  }
+export function addSubject({
+  name,
+  color = null,
+  description = ""
+}) {
+  const subjectName = assertText(name, "科目名");
 
-  const data = loadStudyData();
+  const subjects = getSubjects();
 
   if (
-    data.subjects.some(
-      subject => subject.name.toLowerCase() === subjectName.toLowerCase()
+    subjects.some(
+      subject =>
+        normalizeText(subject.name) === subjectName
     )
   ) {
-    throw new Error("同じ名前の科目がすでにあります。");
+    throw new Error("同じ名前の科目が既に存在します。");
   }
+
+  const index = subjects.length;
 
   const subject = {
     id: createId("subject"),
     name: subjectName,
-    color: String(color || "#8B9BB4"),
-    items: []
+    color:
+      color ||
+      SUBJECT_COLORS[index % SUBJECT_COLORS.length],
+    description: normalizeText(description),
+    createdAt: nowISO(),
+    updatedAt: nowISO()
   };
 
-  data.subjects.push(subject);
+  subjects.push(subject);
 
-  if (!saveStudyData(data)) {
-    throw new Error("科目を保存できませんでした。");
-  }
+  saveSubjects(subjects);
 
-  return { ...subject, items: [] };
+  return clone(subject);
 }
 
-export function renameSubject(subjectId, newName) {
-  const name = String(newName || "").trim();
+export function updateSubject(subjectId, changes = {}) {
+  const subjects = getSubjects();
 
-  if (!name) {
-    throw new Error("新しい科目名を入力してください。");
+  const index = subjects.findIndex(
+    subject => subject.id === subjectId
+  );
+
+  if (index === -1) {
+    throw new Error("科目が見つかりません。");
   }
 
-  return mutateStudyData(data => {
-    const subject = data.subjects.find(
-      item => item.id === String(subjectId)
-    );
+  const current = subjects[index];
 
-    if (!subject) {
-      throw new Error("科目が見つかりません。");
-    }
+  const nextName =
+    changes.name !== undefined
+      ? assertText(changes.name, "科目名")
+      : current.name;
 
-    if (
-      data.subjects.some(
-        item =>
-          item.id !== subject.id &&
-          item.name.toLowerCase() === name.toLowerCase()
-      )
-    ) {
-      throw new Error("同じ名前の科目がすでにあります。");
-    }
+  const duplicated = subjects.some(
+    subject =>
+      subject.id !== subjectId &&
+      normalizeText(subject.name) === nextName
+  );
 
-    subject.name = name;
-  });
+  if (duplicated) {
+    throw new Error("同じ名前の科目が既に存在します。");
+  }
+
+  subjects[index] = {
+    ...current,
+    ...changes,
+    id: current.id,
+    name: nextName,
+    updatedAt: nowISO()
+  };
+
+  saveSubjects(subjects);
+
+  return clone(subjects[index]);
 }
 
 export function deleteSubject(subjectId) {
-  const id = String(subjectId);
+  const subjects = getSubjects();
 
-  return mutateStudyData(data => {
-    const index = data.subjects.findIndex(
-      subject => subject.id === id
-    );
-
-    if (index === -1) {
-      throw new Error("科目が見つかりません。");
-    }
-
-    /*
-     * 過去の記録は削除しない。
-     * 記録には当時の科目名が保存されている。
-     */
-    data.subjects.splice(index, 1);
-  });
-}
-
-/* =========================================================
-   5. 学習項目管理
-   ========================================================= */
-
-export function addStudyItem(subjectId, itemName) {
-  const name = String(itemName || "").trim();
-
-  if (!name) {
-    throw new Error("学習項目名を入力してください。");
-  }
-
-  let createdItem = null;
-
-  mutateStudyData(data => {
-    const subject = data.subjects.find(
-      item => item.id === String(subjectId)
-    );
-
-    if (!subject) {
-      throw new Error("科目が見つかりません。");
-    }
-
-    if (
-      subject.items.some(
-        item => item.name.toLowerCase() === name.toLowerCase()
-      )
-    ) {
-      throw new Error("同じ学習項目がすでにあります。");
-    }
-
-    createdItem = {
-      id: createId("item"),
-      name
-    };
-
-    subject.items.push(createdItem);
-  });
-
-  return { ...createdItem };
-}
-
-export function renameStudyItem(subjectId, itemId, newName) {
-  const name = String(newName || "").trim();
-
-  if (!name) {
-    throw new Error("新しい学習項目名を入力してください。");
-  }
-
-  return mutateStudyData(data => {
-    const subject = data.subjects.find(
-      item => item.id === String(subjectId)
-    );
-
-    if (!subject) {
-      throw new Error("科目が見つかりません。");
-    }
-
-    const item = subject.items.find(
-      entry => entry.id === String(itemId)
-    );
-
-    if (!item) {
-      throw new Error("学習項目が見つかりません。");
-    }
-
-    item.name = name;
-  });
-}
-
-export function deleteStudyItem(subjectId, itemId) {
-  return mutateStudyData(data => {
-    const subject = data.subjects.find(
-      item => item.id === String(subjectId)
-    );
-
-    if (!subject) {
-      throw new Error("科目が見つかりません。");
-    }
-
-    const index = subject.items.findIndex(
-      item => item.id === String(itemId)
-    );
-
-    if (index === -1) {
-      throw new Error("学習項目が見つかりません。");
-    }
-
-    /*
-     * 過去の学習記録は削除しない。
-     */
-    subject.items.splice(index, 1);
-  });
-}
-
-/* =========================================================
-   6. 学習記録の追加
-   ========================================================= */
-
-function resolveStudyTarget(data, subjectId, itemId) {
-  const subject = data.subjects.find(
-    entry => entry.id === String(subjectId)
+  const target = subjects.find(
+    subject => subject.id === subjectId
   );
 
-  if (!subject) {
-    throw new Error("科目を選択してください。");
+  if (!target) {
+    return false;
   }
-
-  let item = null;
-
-  if (itemId) {
-    item = subject.items.find(
-      entry => entry.id === String(itemId)
-    );
-
-    if (!item) {
-      throw new Error("学習項目が見つかりません。");
-    }
-  }
-
-  return { subject, item };
-}
-
-function insertRecord(data, record) {
-  data.records.push(record);
-
-  if (data.records.length > MAX_HISTORY) {
-    data.records.splice(
-      0,
-      data.records.length - MAX_HISTORY
-    );
-  }
-
-  return record;
-}
-
-/**
- * 手動で学習時間を記録する。
- *
- * @param {Object} options
- * @param {string} options.subjectId 科目ID
- * @param {string} [options.itemId] 学習項目ID
- * @param {number} options.minutes 学習時間（分）
- * @param {string} [options.note] メモ
- */
-export function addManualStudyTime({
-  subjectId,
-  itemId = "",
-  minutes,
-  note = ""
-} = {}) {
-  const value = Number(minutes);
-
-  if (!isValidMinutes(value)) {
-    throw new Error(
-      "学習時間は1分以上、1440分以下で入力してください。"
-    );
-  }
-
-  let createdRecord = null;
-
-  mutateStudyData(data => {
-    const { subject, item } = resolveStudyTarget(
-      data,
-      subjectId,
-      itemId
-    );
-
-    const timestamp = now();
-
-    createdRecord = insertRecord(data, {
-      id: createId("record"),
-      subjectId: subject.id,
-      subjectName: subject.name,
-      itemId: item ? item.id : "",
-      itemName: item ? item.name : "自由学習",
-      minutes: value,
-      timestamp,
-      date: localDateKey(timestamp),
-      source: "manual",
-      note: String(note || "").trim()
-    });
-  });
-
-  return { ...createdRecord };
-}
-
-/**
- * タイマーで計測した時間を学習記録に追加する。
- *
- * @param {Object} options
- * @param {string} options.subjectId 科目ID
- * @param {string} [options.itemId] 学習項目ID
- * @param {number} options.minutes 学習時間（分）
- * @param {string} [options.note] メモ
- */
-export function addTimedStudyRecord({
-  subjectId,
-  itemId = "",
-  minutes,
-  note = ""
-} = {}) {
-  const value = Number(minutes);
-
-  if (!isValidMinutes(value)) {
-    throw new Error("記録する学習時間が正しくありません。");
-  }
-
-  let createdRecord = null;
-
-  mutateStudyData(data => {
-    const { subject, item } = resolveStudyTarget(
-      data,
-      subjectId,
-      itemId
-    );
-
-    const timestamp = now();
-
-    createdRecord = insertRecord(data, {
-      id: createId("record"),
-      subjectId: subject.id,
-      subjectName: subject.name,
-      itemId: item ? item.id : "",
-      itemName: item ? item.name : "自由学習",
-      minutes: value,
-      timestamp,
-      date: localDateKey(timestamp),
-      source: "timer",
-      note: String(note || "").trim()
-    });
-  });
-
-  return { ...createdRecord };
-}
-
-/* =========================================================
-   7. 学習記録の取得・削除
-   ========================================================= */
-
-export function getStudyRecords({
-  from,
-  to,
-  subjectId,
-  limit = MAX_HISTORY
-} = {}) {
-  let records = loadStudyData().records;
-
-  if (from) {
-    records = records.filter(record => record.date >= from);
-  }
-
-  if (to) {
-    records = records.filter(record => record.date <= to);
-  }
-
-  if (subjectId) {
-    records = records.filter(
-      record => record.subjectId === String(subjectId)
-    );
-  }
-
-  const safeLimit = Math.max(
-    0,
-    Math.min(MAX_HISTORY, Number(limit) || MAX_HISTORY)
-  );
-
-  return records
-    .slice()
-    .sort((a, b) => b.timestamp - a.timestamp)
-    .slice(0, safeLimit)
-    .map(record => ({ ...record }));
-}
-
-export function deleteStudyRecord(recordId) {
-  return mutateStudyData(data => {
-    const index = data.records.findIndex(
-      record => record.id === String(recordId)
-    );
-
-    if (index === -1) {
-      throw new Error("学習記録が見つかりません。");
-    }
-
-    data.records.splice(index, 1);
-  });
-}
-
-/* =========================================================
-   8. 学習時間の集計
-   ========================================================= */
-
-function sumMinutes(records) {
-  return records.reduce(
-    (total, record) => total + Number(record.minutes || 0),
-    0
-  );
-}
-
-export function getTodayStudyMinutes() {
-  const today = localDateKey();
-
-  return sumMinutes(
-    getStudyRecords({ from: today, to: today })
-  );
-}
-
-export function getWeekStudyMinutes() {
-  const today = startOfLocalDay();
 
   /*
-   * 今日を含む直近7日間。
+   * 学習記録や学習項目は削除しない。
+   * 過去の記録を失わないようにする。
    */
-  const from = localDateKey(
-    today - 6 * 24 * 60 * 60 * 1000
+
+  saveSubjects(
+    subjects.filter(
+      subject => subject.id !== subjectId
+    )
   );
 
-  const to = localDateKey(today);
+  return true;
+}
 
-  return sumMinutes(
-    getStudyRecords({ from, to })
+/* =========================================================
+   05. STUDY ITEM MANAGEMENT
+   ========================================================= */
+
+export function getAllStudyItems() {
+  return clone(getItems());
+}
+
+export function getStudyItemsBySubject(subjectId) {
+  return clone(
+    getItems().filter(
+      item => item.subjectId === subjectId
+    )
   );
 }
 
-export function getTotalStudyMinutes() {
-  return sumMinutes(getStudyRecords());
+export function getStudyItem(itemId) {
+  return getItems().find(
+    item => item.id === itemId
+  ) || null;
 }
 
-/**
- * 今日・1週間・全期間の学習時間を返す。
- */
-export function getStudySummary() {
+export function addStudyItem({
+  subjectId,
+  name,
+  description = ""
+}) {
+  const subject = getSubject(subjectId);
+
+  if (!subject) {
+    throw new Error("対象の科目が見つかりません。");
+  }
+
+  const itemName = assertText(name, "学習項目名");
+
+  const items = getItems();
+
+  const duplicated = items.some(
+    item =>
+      item.subjectId === subjectId &&
+      normalizeText(item.name) === itemName
+  );
+
+  if (duplicated) {
+    throw new Error("同じ学習項目が既に存在します。");
+  }
+
+  const item = {
+    id: createId("item"),
+    subjectId,
+    name: itemName,
+    description: normalizeText(description),
+    createdAt: nowISO(),
+    updatedAt: nowISO()
+  };
+
+  items.push(item);
+
+  saveItems(items);
+
+  return clone(item);
+}
+
+export function updateStudyItem(itemId, changes = {}) {
+  const items = getItems();
+
+  const index = items.findIndex(
+    item => item.id === itemId
+  );
+
+  if (index === -1) {
+    throw new Error("学習項目が見つかりません。");
+  }
+
+  const current = items[index];
+
+  const nextName =
+    changes.name !== undefined
+      ? assertText(changes.name, "学習項目名")
+      : current.name;
+
+  const nextSubjectId =
+    changes.subjectId !== undefined
+      ? changes.subjectId
+      : current.subjectId;
+
+  if (!getSubject(nextSubjectId)) {
+    throw new Error("対象の科目が見つかりません。");
+  }
+
+  const duplicated = items.some(
+    item =>
+      item.id !== itemId &&
+      item.subjectId === nextSubjectId &&
+      normalizeText(item.name) === nextName
+  );
+
+  if (duplicated) {
+    throw new Error("同じ学習項目が既に存在します。");
+  }
+
+  items[index] = {
+    ...current,
+    ...changes,
+    id: current.id,
+    name: nextName,
+    subjectId: nextSubjectId,
+    updatedAt: nowISO()
+  };
+
+  saveItems(items);
+
+  return clone(items[index]);
+}
+
+export function deleteStudyItem(itemId) {
+  const items = getItems();
+
+  const exists = items.some(
+    item => item.id === itemId
+  );
+
+  if (!exists) {
+    return false;
+  }
+
+  /*
+   * 過去の学習記録は残す。
+   */
+
+  saveItems(
+    items.filter(item => item.id !== itemId)
+  );
+
+  return true;
+}
+
+/* =========================================================
+   06. STUDY RECORD NORMALIZATION
+   ========================================================= */
+
+function createStudyRecord({
+  subjectId,
+  itemId = null,
+  minutes,
+  date = getDateKey(),
+  note = "",
+  source = "manual"
+}) {
+  const subject = getSubject(subjectId);
+
+  if (!subject) {
+    throw new Error("科目が見つかりません。");
+  }
+
+  const normalizedMinutes = normalizeMinutes(minutes);
+
+  if (normalizedMinutes <= 0) {
+    throw new Error("学習時間は1分以上にしてください。");
+  }
+
+  if (itemId) {
+    const item = getStudyItem(itemId);
+
+    if (!item || item.subjectId !== subjectId) {
+      throw new Error("学習項目が正しくありません。");
+    }
+  }
+
+  const normalizedDate = String(date);
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) {
+    throw new Error("日付の形式が正しくありません。");
+  }
+
   return {
-    todayMinutes: getTodayStudyMinutes(),
-    weekMinutes: getWeekStudyMinutes(),
-    totalMinutes: getTotalStudyMinutes()
+    id: createId("record"),
+    subjectId,
+    itemId,
+    minutes: normalizedMinutes,
+    date: normalizedDate,
+    note: normalizeText(note),
+    source,
+    createdAt: nowISO(),
+    updatedAt: nowISO()
   };
 }
 
 /* =========================================================
-   9. 科目別の学習時間
+   07. MANUAL STUDY RECORD
    ========================================================= */
 
-export function getSubjectStudyStats({
-  from,
-  to
-} = {}) {
-  const subjects = getSubjects();
+export function addStudyRecord(options = {}) {
+  const record = createStudyRecord({
+    ...options,
+    source: "manual"
+  });
 
-  const records = getStudyRecords({ from, to });
+  const records = getRecords();
 
-  const stats = subjects.map(subject => ({
-    subjectId: subject.id,
-    subjectName: subject.name,
-    color: subject.color,
-    minutes: 0,
-    recordCount: 0
-  }));
+  records.push(record);
 
-  const index = new Map(
-    stats.map(stat => [stat.subjectId, stat])
-  );
+  saveRecords(records);
 
-  for (const record of records) {
-    let stat = index.get(record.subjectId);
-
-    /*
-     * 削除済み科目の過去記録も集計から失わない。
-     */
-    if (!stat) {
-      stat = {
-        subjectId: record.subjectId,
-        subjectName: record.subjectName || "未分類",
-        color: "#8B9BB4",
-        minutes: 0,
-        recordCount: 0
-      };
-
-      stats.push(stat);
-      index.set(stat.subjectId, stat);
-    }
-
-    stat.minutes += record.minutes;
-    stat.recordCount += 1;
-  }
-
-  return stats.sort((a, b) => b.minutes - a.minutes);
+  return clone(record);
 }
 
 /* =========================================================
-   10. 日別の学習時間
-   ========================================================= */
-
-export function getDailyStudyStats(days = 7) {
-  const count = Math.max(
-    1,
-    Math.min(366, Math.floor(Number(days) || 7))
-  );
-
-  const today = startOfLocalDay();
-  const daily = [];
-
-  for (let offset = count - 1; offset >= 0; offset--) {
-    const timestamp = today - offset * 24 * 60 * 60 * 1000;
-    const date = localDateKey(timestamp);
-
-    daily.push({
-      date,
-      minutes: 0,
-      recordCount: 0
-    });
-  }
-
-  const index = new Map(
-    daily.map(day => [day.date, day])
-  );
-
-  const records = getStudyRecords();
-
-  for (const record of records) {
-    const day = index.get(record.date);
-
-    if (!day) {
-      continue;
-    }
-
-    day.minutes += record.minutes;
-    day.recordCount += 1;
-  }
-
-  return daily;
-}
-
-/* =========================================================
-   11. 学習時間の表示用変換
-   ========================================================= */
-
-export function formatStudyTime(minutes) {
-  const value = Math.max(
-    0,
-    Math.floor(Number(minutes) || 0)
-  );
-
-  const hours = Math.floor(value / 60);
-  const remainingMinutes = value % 60;
-
-  if (hours === 0) {
-    return `${remainingMinutes}分`;
-  }
-
-  if (remainingMinutes === 0) {
-    return `${hours}時間`;
-  }
-
-  return `${hours}時間${remainingMinutes}分`;
-}
-
-/* =========================================================
-   12. タイマー
+   08. TIMER STATE
    ========================================================= */
 
 function loadTimerState() {
-  const state = store.timer.load(null);
+  try {
+    const raw = localStorage.getItem(TIMER_STORAGE_KEY);
 
-  if (
-    !state ||
-    typeof state !== "object" ||
-    Array.isArray(state)
-  ) {
-    return {
-      running: false,
-      startedAt: null,
-      subjectId: "",
-      itemId: "",
-      note: ""
-    };
+    if (!raw) {
+      return null;
+    }
+
+    const state = JSON.parse(raw);
+
+    if (!state || typeof state !== "object") {
+      return null;
+    }
+
+    return state;
+  } catch (error) {
+    console.error(
+      "[ALGOL] Timer state could not be loaded.",
+      error
+    );
+
+    return null;
   }
-
-  return {
-    running: Boolean(state.running),
-    startedAt: Number(state.startedAt) || null,
-    subjectId: String(state.subjectId || ""),
-    itemId: String(state.itemId || ""),
-    note: String(state.note || "")
-  };
 }
 
 function saveTimerState(state) {
-  const saved = store.timer.save(state);
+  try {
+    if (state === null) {
+      localStorage.removeItem(TIMER_STORAGE_KEY);
+      return;
+    }
 
-  if (!saved) {
-    throw new Error("タイマーの状態を保存できませんでした。");
-  }
-
-  return state;
-}
-
-/**
- * タイマーの状態を取得する。
- */
-export function getTimerState() {
-  const state = loadTimerState();
-
-  let elapsedSeconds = 0;
-
-  if (state.running && state.startedAt) {
-    elapsedSeconds = Math.max(
-      0,
-      Math.floor((now() - state.startedAt) / 1000)
+    localStorage.setItem(
+      TIMER_STORAGE_KEY,
+      JSON.stringify(state)
     );
-  }
+  } catch (error) {
+    console.error(
+      "[ALGOL] Timer state could not be saved.",
+      error
+    );
 
-  return {
-    ...state,
-    elapsedSeconds,
-    elapsedMinutes: Math.floor(elapsedSeconds / 60)
-  };
+    throw new Error("タイマー状態を保存できませんでした。");
+  }
 }
 
-/**
- * タイマーを開始する。
- */
-export function startStudyTimer({
-  subjectId,
-  itemId = "",
-  note = ""
-} = {}) {
-  if (!subjectId) {
-    throw new Error("科目を選択してください。");
+let timerState = loadTimerState();
+
+/* =========================================================
+   09. TIMER ELAPSED TIME
+   ========================================================= */
+
+function getElapsedMilliseconds(state = timerState) {
+  if (!state) {
+    return 0;
   }
 
-  const data = loadStudyData();
-
-  resolveStudyTarget(data, subjectId, itemId);
-
-  const current = loadTimerState();
-
-  if (current.running) {
-    throw new Error("タイマーはすでに動作中です。");
-  }
-
-  const state = {
-    running: true,
-    startedAt: now(),
-    subjectId: String(subjectId),
-    itemId: String(itemId || ""),
-    note: String(note || "").trim()
-  };
-
-  saveTimerState(state);
-
-  return getTimerState();
-}
-
-/**
- * タイマーを停止し、計測時間を記録する。
- *
- * 1分未満の場合は自動で切り捨てず、
- * 記録せずに終了するかどうかを呼び出し側で判断できる。
- */
-export function stopStudyTimer() {
-  const state = loadTimerState();
-
-  if (!state.running || !state.startedAt) {
-    throw new Error("動作中のタイマーがありません。");
-  }
-
-  const elapsedSeconds = Math.max(
+  const accumulated = Math.max(
     0,
-    Math.floor((now() - state.startedAt) / 1000)
+    Number(state.accumulatedMilliseconds) || 0
   );
 
-  const minutes = Math.floor(elapsedSeconds / 60);
+  if (state.status !== "running") {
+    return accumulated;
+  }
 
-  if (minutes < 1) {
+  const startedAt = new Date(
+    state.startedAt
+  ).getTime();
+
+  if (!Number.isFinite(startedAt)) {
+    return accumulated;
+  }
+
+  return accumulated + Math.max(
+    0,
+    Date.now() - startedAt
+  );
+}
+
+export function getTimerStatus() {
+  if (!timerState) {
     return {
-      saved: false,
-      elapsedSeconds,
-      elapsedMinutes: 0,
-      message: "計測時間が1分未満のため、学習記録は保存されていません。"
+      active: false,
+      status: "idle",
+      elapsedMilliseconds: 0,
+      elapsedSeconds: 0,
+      elapsedMinutes: 0
     };
   }
 
-  /*
-   * 先に学習記録を保存する。
-   * 記録保存に失敗した場合はタイマーを残す。
-   */
-  const record = addTimedStudyRecord({
-    subjectId: state.subjectId,
-    itemId: state.itemId,
+  const elapsedMilliseconds =
+    getElapsedMilliseconds();
+
+  return {
+    active: true,
+    status: timerState.status,
+    subjectId: timerState.subjectId,
+    itemId: timerState.itemId,
+    startedAt: timerState.startedAt,
+    elapsedMilliseconds,
+    elapsedSeconds: Math.floor(
+      elapsedMilliseconds / 1000
+    ),
+    elapsedMinutes: Math.floor(
+      elapsedMilliseconds / 60000
+    )
+  };
+}
+
+/* =========================================================
+   10. TIMER START
+   ========================================================= */
+
+export function startStudyTimer({
+  subjectId,
+  itemId = null
+}) {
+  if (timerState) {
+    throw new Error(
+      "既にタイマーが動作中、または一時停止中です。"
+    );
+  }
+
+  if (!getSubject(subjectId)) {
+    throw new Error("科目が見つかりません。");
+  }
+
+  if (itemId) {
+    const item = getStudyItem(itemId);
+
+    if (!item || item.subjectId !== subjectId) {
+      throw new Error("学習項目が正しくありません。");
+    }
+  }
+
+  timerState = {
+    id: createId("timer"),
+    subjectId,
+    itemId,
+    status: "running",
+    startedAt: nowISO(),
+    accumulatedMilliseconds: 0,
+    createdAt: nowISO()
+  };
+
+  saveTimerState(timerState);
+
+  return getTimerStatus();
+}
+
+/* =========================================================
+   11. TIMER PAUSE
+   ========================================================= */
+
+export function pauseStudyTimer() {
+  if (!timerState) {
+    throw new Error("動作中のタイマーがありません。");
+  }
+
+  if (timerState.status !== "running") {
+    return getTimerStatus();
+  }
+
+  timerState.accumulatedMilliseconds =
+    getElapsedMilliseconds(timerState);
+
+  timerState.status = "paused";
+  timerState.startedAt = null;
+
+  saveTimerState(timerState);
+
+  return getTimerStatus();
+}
+
+/* =========================================================
+   12. TIMER RESUME
+   ========================================================= */
+
+export function resumeStudyTimer() {
+  if (!timerState) {
+    throw new Error("再開できるタイマーがありません。");
+  }
+
+  if (timerState.status !== "paused") {
+    return getTimerStatus();
+  }
+
+  timerState.status = "running";
+  timerState.startedAt = nowISO();
+
+  saveTimerState(timerState);
+
+  return getTimerStatus();
+}
+
+/* =========================================================
+   13. TIMER CANCEL
+   ========================================================= */
+
+export function cancelStudyTimer() {
+  if (!timerState) {
+    return false;
+  }
+
+  timerState = null;
+
+  saveTimerState(null);
+
+  return true;
+}
+
+/* =========================================================
+   14. TIMER FINISH
+   ========================================================= */
+
+export function finishStudyTimer({
+  note = ""
+} = {}) {
+  if (!timerState) {
+    throw new Error("終了できるタイマーがありません。");
+  }
+
+  const elapsedMilliseconds =
+    getElapsedMilliseconds(timerState);
+
+  const minutes = Math.floor(
+    elapsedMilliseconds / 60000
+  );
+
+  if (minutes <= 0) {
+    throw new Error(
+      "学習時間が1分未満のため記録できません。"
+    );
+  }
+
+  const record = createStudyRecord({
+    subjectId: timerState.subjectId,
+    itemId: timerState.itemId,
     minutes,
-    note: state.note
+    date: getDateKey(timerState.createdAt),
+    note,
+    source: "timer"
   });
 
-  saveTimerState({
-    running: false,
-    startedAt: null,
-    subjectId: "",
-    itemId: "",
-    note: ""
-  });
+  const records = getRecords();
 
-  return {
-    saved: true,
-    elapsedSeconds,
-    elapsedMinutes: minutes,
-    record
-  };
-}
+  records.push(record);
 
-/**
- * タイマーをリセットする。
- *
- * 記録を追加せず、計測中の時間を破棄する。
- */
-export function resetStudyTimer() {
-  saveTimerState({
-    running: false,
-    startedAt: null,
-    subjectId: "",
-    itemId: "",
-    note: ""
-  });
+  /*
+   * 記録の保存に成功してからタイマーを消す。
+   * 保存失敗時にタイマー情報を失わない。
+   */
 
-  return getTimerState();
+  saveRecords(records);
+
+  timerState = null;
+
+  saveTimerState(null);
+
+  return clone(record);
 }
 
 /* =========================================================
-   13. 初期化
+   15. RECORD MANAGEMENT
    ========================================================= */
 
-/**
- * 初期データがない場合に限り、初期科目を登録する。
- *
- * 既存の学習記録や科目は削除しない。
- */
-export function initializeStudy() {
-  const data = loadStudyData();
+export function getAllStudyRecords() {
+  return clone(getRecords());
+}
 
-  if (data.subjects.length === 0) {
-    data.subjects = DEFAULT_SUBJECTS.map(normalizeSubject);
+export function getStudyRecord(recordId) {
+  return getRecords().find(
+    record => record.id === recordId
+  ) || null;
+}
+
+export function updateStudyRecord(recordId, changes = {}) {
+  const records = getRecords();
+
+  const index = records.findIndex(
+    record => record.id === recordId
+  );
+
+  if (index === -1) {
+    throw new Error("学習記録が見つかりません。");
   }
 
-  if (!saveStudyData(data)) {
-    throw new Error("学習データを初期化できませんでした。");
+  const current = records[index];
+
+  const subjectId =
+    changes.subjectId ?? current.subjectId;
+
+  const itemId =
+    changes.itemId !== undefined
+      ? changes.itemId
+      : current.itemId;
+
+  const minutes =
+    changes.minutes !== undefined
+      ? normalizeMinutes(changes.minutes)
+      : current.minutes;
+
+  const date =
+    changes.date !== undefined
+      ? String(changes.date)
+      : current.date;
+
+  if (!getSubject(subjectId)) {
+    throw new Error("科目が見つかりません。");
   }
 
-  return {
-    subjects: data.subjects.length,
-    records: data.records.length
+  if (minutes <= 0) {
+    throw new Error("学習時間は1分以上にしてください。");
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error("日付の形式が正しくありません。");
+  }
+
+  if (itemId) {
+    const item = getStudyItem(itemId);
+
+    if (!item || item.subjectId !== subjectId) {
+      throw new Error("学習項目が正しくありません。");
+    }
+  }
+
+  records[index] = {
+    ...current,
+    ...changes,
+    id: current.id,
+    subjectId,
+    itemId,
+    minutes,
+    date,
+    updatedAt: nowISO()
   };
+
+  saveRecords(records);
+
+  return clone(records[index]);
+}
+
+export function deleteStudyRecord(recordId) {
+  const records = getRecords();
+
+  const exists = records.some(
+    record => record.id === recordId
+  );
+
+  if (!exists) {
+    return false;
+  }
+
+  saveRecords(
+    records.filter(
+      record => record.id !== recordId
+    )
+  );
+
+  return true;
 }
 
 /* =========================================================
-   14. 学習機能のまとめ
+   16. STUDY TIME AGGREGATION
    ========================================================= */
 
-export const study = Object.freeze({
-  initialize: initializeStudy,
+export function getTotalStudyMinutes({
+  from = null,
+  to = null,
+  subjectId = null,
+  itemId = null
+} = {}) {
+  const records = getRecords();
 
-  getSubjects,
+  return records.reduce((total, record) => {
+    if (
+      subjectId &&
+      record.subjectId !== subjectId
+    ) {
+      return total;
+    }
+
+    if (
+      itemId &&
+      record.itemId !== itemId
+    ) {
+      return total;
+    }
+
+    if (from && record.date < from) {
+      return total;
+    }
+
+    if (to && record.date > to) {
+      return total;
+    }
+
+    return total + normalizeMinutes(record.minutes);
+  }, 0);
+}
+
+/* =========================================================
+   17. SUBJECT TOTALS
+   ========================================================= */
+
+export function getStudyMinutesBySubject(options = {}) {
+  const subjects = getSubjects();
+
+  return subjects.map(subject => ({
+    subjectId: subject.id,
+    name: subject.name,
+    color: subject.color || DEFAULT_SUBJECT_COLOR,
+    minutes: getTotalStudyMinutes({
+      ...options,
+      subjectId: subject.id
+    })
+  }));
+}
+
+/* =========================================================
+   18. ITEM TOTALS
+   ========================================================= */
+
+export function getStudyMinutesByItem(options = {}) {
+  const items = getItems();
+
+  return items.map(item => ({
+    itemId: item.id,
+    subjectId: item.subjectId,
+    name: item.name,
+    minutes: getTotalStudyMinutes({
+      ...options,
+      itemId: item.id
+    })
+  }));
+}
+
+/* =========================================================
+   19. DAILY STUDY TOTAL
+   ========================================================= */
+
+export function getDailyStudyMinutes(date = getDateKey()) {
+  return getTotalStudyMinutes({
+    from: date,
+    to: date
+  });
+}
+
+/* =========================================================
+   20. WEEKLY STUDY TOTAL
+   ========================================================= */
+
+export function getWeeklyStudyMinutes(date = new Date()) {
+  const target = new Date(date);
+
+  const day = target.getDay();
+
+  const start = new Date(target);
+
+  start.setDate(
+    target.getDate() - day
+  );
+
+  const end = new Date(start);
+
+  end.setDate(
+    start.getDate() + 6
+  );
+
+  return getTotalStudyMinutes({
+    from: getDateKey(start),
+    to: getDateKey(end)
+  });
+}
+
+/* =========================================================
+   21. MONTHLY STUDY TOTAL
+   ========================================================= */
+
+export function getMonthlyStudyMinutes(date = new Date()) {
+  const target = new Date(date);
+
+  const year = target.getFullYear();
+  const month = target.getMonth();
+
+  const start = new Date(year, month, 1);
+  const end = new Date(year, month + 1, 0);
+
+  return getTotalStudyMinutes({
+    from: getDateKey(start),
+    to: getDateKey(end)
+  });
+}
+
+/* =========================================================
+   22. DAILY STUDY HISTORY
+   ========================================================= */
+
+export function getDailyStudyHistory({
+  from,
+  to
+} = {}) {
+  if (!from || !to) {
+    throw new Error("集計期間を指定してください。");
+  }
+
+  const start = new Date(`${from}T00:00:00`);
+  const end = new Date(`${to}T00:00:00`);
+
+  if (
+    Number.isNaN(start.getTime()) ||
+    Number.isNaN(end.getTime()) ||
+    start > end
+  ) {
+    throw new Error("集計期間が正しくありません。");
+  }
+
+  const result = [];
+
+  const cursor = new Date(start);
+
+  while (cursor <= end) {
+    const date = getDateKey(cursor);
+
+    result.push({
+      date,
+      minutes: getDailyStudyMinutes(date)
+    });
+
+    cursor.setDate(
+      cursor.getDate() + 1
+    );
+  }
+
+  return result;
+}
+
+/* =========================================================
+   23. RECENT RECORDS
+   ========================================================= */
+
+export function getRecentStudyRecords(limit = 10) {
+  const safeLimit = Math.max(
+    0,
+    normalizeMinutes(limit)
+  );
+
+  return clone(
+    getRecords()
+      .sort((a, b) => {
+        const dateA = new Date(
+          a.createdAt || a.date
+        ).getTime();
+
+        const dateB = new Date(
+          b.createdAt || b.date
+        ).getTime();
+
+        return dateB - dateA;
+      })
+      .slice(0, safeLimit)
+  );
+}
+
+/* =========================================================
+   24. FORMAT TIME
+   ========================================================= */
+
+export function formatStudyMinutes(minutes) {
+  const total = normalizeMinutes(minutes);
+
+  const hours = Math.floor(total / 60);
+  const remaining = total % 60;
+
+  if (hours <= 0) {
+    return `${remaining}分`;
+  }
+
+  if (remaining <= 0) {
+    return `${hours}時間`;
+  }
+
+  return `${hours}時間${remaining}分`;
+}
+
+export function formatTimer(milliseconds) {
+  const totalSeconds = Math.floor(
+    Math.max(0, milliseconds) / 1000
+  );
+
+  const hours = Math.floor(totalSeconds / 3600);
+
+  const minutes = Math.floor(
+    (totalSeconds % 3600) / 60
+  );
+
+  const seconds = totalSeconds % 60;
+
+  return [
+    String(hours).padStart(2, "0"),
+    String(minutes).padStart(2, "0"),
+    String(seconds).padStart(2, "0")
+  ].join(":");
+}
+
+/* =========================================================
+   25. EXPORT DEFAULT
+   ========================================================= */
+
+export default {
+  getAllSubjects,
+  getSubject,
   addSubject,
-  renameSubject,
+  updateSubject,
   deleteSubject,
 
+  getAllStudyItems,
+  getStudyItemsBySubject,
+  getStudyItem,
   addStudyItem,
-  renameStudyItem,
+  updateStudyItem,
   deleteStudyItem,
 
-  addManualStudyTime,
-  addTimedStudyRecord,
-  getStudyRecords,
+  addStudyRecord,
+  getAllStudyRecords,
+  getStudyRecord,
+  updateStudyRecord,
   deleteStudyRecord,
 
-  getTodayStudyMinutes,
-  getWeekStudyMinutes,
-  getTotalStudyMinutes,
-  getStudySummary,
-
-  getSubjectStudyStats,
-  getDailyStudyStats,
-  formatStudyTime,
-
-  getTimerState,
   startStudyTimer,
-  stopStudyTimer,
-  resetStudyTimer
-});
+  pauseStudyTimer,
+  resumeStudyTimer,
+  cancelStudyTimer,
+  finishStudyTimer,
+  getTimerStatus,
+
+  getTotalStudyMinutes,
+  getStudyMinutesBySubject,
+  getStudyMinutesByItem,
+  getDailyStudyMinutes,
+  getWeeklyStudyMinutes,
+  getMonthlyStudyMinutes,
+  getDailyStudyHistory,
+  getRecentStudyRecords,
+
+  formatStudyMinutes,
+  formatTimer
+};
+
+/* =========================================================
+   END OF ALGOL STUDY
+   ========================================================= */
