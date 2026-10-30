@@ -1,538 +1,291 @@
 
 /* =========================================================
-   ONE FOR ALL COSMOS
+   ALGOL — Study Constellation
    js/economy.js
 
-   ゲーム内経済システム
-   ・所持金管理
-   ・借入管理
-   ・日利5%の複利計算
-   ・返済期限管理
-   ・3日間の猶予期間
-   ・利息優先の返済
-   ・取引履歴
-   ・データ自動保存
+   ECONOMY SYSTEM
 
-   注意:
-   延滞金・延滞時の追加利率は未設定。
+   確定設定
+   ・初期所持金：0 CR
+   ・日利：3%
+
+   基本機能
+   ・所持金管理
+   ・CRの獲得と支払い
+   ・取引履歴
+   ・借入データの管理領域
+   ・利息の計算
+
+   注意
+   ・未確定の借金上限や延滞ペナルティは実装しない
+   ・利息の自動発生や複利処理はまだ行わない
+   ・既存データを自動削除・初期化しない
    ========================================================= */
 
 "use strict";
 
-import { store } from "./store.js";
+import { loadData, saveData } from "./store.js";
 
 /* =========================================================
-   基本設定
+   設定
    ========================================================= */
 
-const ECONOMY_CONFIG = Object.freeze({
-  version: 1,
-
-  // 日利5%
-  dailyInterestRate: 0.05,
-
-  // 返済期限後の猶予期間
-  gracePeriodDays: 3,
-
-  // 初期所持金
-  initialBalance: 1000,
-
-  // 金額の小数点以下の桁数
-  decimalPlaces: 2
+export const ECONOMY_CONFIG = Object.freeze({
+  INITIAL_BALANCE: 0,
+  DAILY_INTEREST_RATE: 0.03,
+  CURRENCY: "CR"
 });
 
 /* =========================================================
-   内部ユーティリティ
+   共通関数
    ========================================================= */
 
-function createId(prefix = "economy") {
-  if (
-    typeof crypto !== "undefined" &&
-    typeof crypto.randomUUID === "function"
-  ) {
-    return `${prefix}-${crypto.randomUUID()}`;
+function createId(prefix = "transaction") {
+  if (globalThis.crypto?.randomUUID) {
+    return `${prefix}-${globalThis.crypto.randomUUID()}`;
   }
 
-  return (
-    prefix +
-    "-" +
-    Date.now().toString(36) +
-    "-" +
-    Math.random().toString(36).slice(2, 10)
-  );
+  return `${prefix}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
 }
 
-function roundMoney(value) {
+function now() {
+  return new Date().toISOString();
+}
+
+function toAmount(value) {
   const amount = Number(value);
 
-  if (!Number.isFinite(amount)) {
-    return 0;
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("金額は0より大きい数値にしてください。");
   }
 
-  const factor = 10 ** ECONOMY_CONFIG.decimalPlaces;
-
-  return Math.round((amount + Number.EPSILON) * factor) / factor;
-}
-
-function normalizeMoney(value) {
-  return Math.max(0, roundMoney(value));
-}
-
-function clone(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-
-function todayString() {
-  const date = new Date();
-
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
-}
-
-function isValidDate(value) {
-  if (typeof value !== "string") {
-    return false;
-  }
-
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-
-  if (!match) {
-    return false;
-  }
-
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-
-  const date = new Date(year, month - 1, day);
-
-  return (
-    date.getFullYear() === year &&
-    date.getMonth() === month - 1 &&
-    date.getDate() === day
-  );
-}
-
-function dateToDayNumber(value) {
-  if (!isValidDate(value)) {
-    return null;
-  }
-
-  const [year, month, day] = value.split("-").map(Number);
-
-  return Math.floor(
-    Date.UTC(year, month - 1, day) / 86400000
-  );
-}
-
-function addDays(dateString, days) {
-  const dayNumber = dateToDayNumber(dateString);
-
-  if (dayNumber === null) {
-    return null;
-  }
-
-  const date = new Date((dayNumber + days) * 86400000);
-
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(date.getUTCDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
-}
-
-function daysBetween(fromDate, toDate) {
-  const from = dateToDayNumber(fromDate);
-  const to = dateToDayNumber(toDate);
-
-  if (from === null || to === null) {
-    return 0;
-  }
-
-  return to - from;
+  return Math.round(amount * 100) / 100;
 }
 
 /* =========================================================
-   データ構造
+   データ取得・保存
    ========================================================= */
 
-function createDefaultData() {
+function createDefaultEconomy() {
   return {
-    version: ECONOMY_CONFIG.version,
-
-    balance: ECONOMY_CONFIG.initialBalance,
-
-    loans: [],
-
+    balance: ECONOMY_CONFIG.INITIAL_BALANCE,
     transactions: [],
-
-    lastInterestDate: todayString(),
-
-    createdAt: Date.now(),
-
-    updatedAt: Date.now()
+    loans: [],
+    updatedAt: now()
   };
 }
 
-function normalizeLoan(loan) {
-  const principal = normalizeMoney(loan.principal);
-  const outstandingPrincipal = normalizeMoney(
-    loan.outstandingPrincipal ?? principal
-  );
+function getEconomyData() {
+  const saved = loadData("economy", null);
 
-  const accruedInterest = normalizeMoney(loan.accruedInterest);
-
-  return {
-    id: String(loan.id || createId("loan")),
-
-    title: String(loan.title || "借入"),
-
-    originalPrincipal: principal,
-
-    outstandingPrincipal,
-
-    accruedInterest,
-
-    borrowedAt: String(loan.borrowedAt || todayString()),
-
-    dueDate: isValidDate(loan.dueDate)
-      ? loan.dueDate
-      : addDays(todayString(), 7),
-
-    status: ["active", "paid"].includes(loan.status)
-      ? loan.status
-      : (
-          outstandingPrincipal <= 0 && accruedInterest <= 0
-            ? "paid"
-            : "active"
-        ),
-
-    lastInterestDate: isValidDate(loan.lastInterestDate)
-      ? loan.lastInterestDate
-      : String(loan.borrowedAt || todayString()),
-
-    createdAt: Number(loan.createdAt) || Date.now(),
-
-    updatedAt: Number(loan.updatedAt) || Date.now()
-  };
-}
-
-function normalizeTransaction(transaction) {
-  return {
-    id: String(transaction.id || createId("transaction")),
-
-    type: String(transaction.type || "unknown"),
-
-    amount: roundMoney(transaction.amount),
-
-    balanceAfter: roundMoney(transaction.balanceAfter),
-
-    loanId: transaction.loanId || null,
-
-    note: String(transaction.note || ""),
-
-    date: String(transaction.date || todayString()),
-
-    createdAt: Number(transaction.createdAt) || Date.now()
-  };
-}
-
-/* =========================================================
-   読み込み・保存
-   ========================================================= */
-
-function loadEconomyData() {
-  let saved = null;
-
-  try {
-    saved = store.economy.load(null);
-  } catch (error) {
-    console.error("[Economy] 読み込みエラー:", error);
-  }
-
-  if (!saved || typeof saved !== "object") {
-    return createDefaultData();
+  if (!saved || typeof saved !== "object" || Array.isArray(saved)) {
+    return createDefaultEconomy();
   }
 
   return {
-    version: ECONOMY_CONFIG.version,
+    ...createDefaultEconomy(),
+    ...saved,
 
-    balance: normalizeMoney(
-      saved.balance ?? ECONOMY_CONFIG.initialBalance
-    ),
-
-    loans: Array.isArray(saved.loans)
-      ? saved.loans.map(normalizeLoan)
-      : [],
+    balance: Number.isFinite(Number(saved.balance))
+      ? Number(saved.balance)
+      : ECONOMY_CONFIG.INITIAL_BALANCE,
 
     transactions: Array.isArray(saved.transactions)
-      ? saved.transactions.map(normalizeTransaction)
+      ? saved.transactions
       : [],
 
-    lastInterestDate: isValidDate(saved.lastInterestDate)
-      ? saved.lastInterestDate
-      : todayString(),
-
-    createdAt: Number(saved.createdAt) || Date.now(),
-
-    updatedAt: Number(saved.updatedAt) || Date.now()
+    loans: Array.isArray(saved.loans)
+      ? saved.loans
+      : []
   };
 }
 
-let data = loadEconomyData();
-
-function saveEconomyData() {
-  data.updatedAt = Date.now();
-
-  try {
-    return store.economy.save(data);
-  } catch (error) {
-    console.error("[Economy] 保存エラー:", error);
-    return false;
-  }
-}
-
-/* =========================================================
-   取引履歴
-   ========================================================= */
-
-function addTransaction({
-  type,
-  amount,
-  balanceAfter = data.balance,
-  loanId = null,
-  note = ""
-}) {
-  const transaction = {
-    id: createId("transaction"),
-
-    type,
-
-    amount: roundMoney(amount),
-
-    balanceAfter: roundMoney(balanceAfter),
-
-    loanId,
-
-    note: String(note || ""),
-
-    date: todayString(),
-
-    createdAt: Date.now()
-  };
-
-  data.transactions.unshift(transaction);
-
-  // 履歴が無制限に増えないよう、最新2000件を保持
-  if (data.transactions.length > 2000) {
-    data.transactions = data.transactions.slice(0, 2000);
-  }
-
-  return transaction;
-}
-
-function getTransactions(options = {}) {
-  const limit = Number.isFinite(Number(options.limit))
-    ? Math.max(0, Math.floor(Number(options.limit)))
-    : data.transactions.length;
-
-  const type = options.type || null;
-
-  let result = [...data.transactions];
-
-  if (type) {
-    result = result.filter(item => item.type === type);
-  }
-
-  if (options.from && isValidDate(options.from)) {
-    result = result.filter(item => item.date >= options.from);
-  }
-
-  if (options.to && isValidDate(options.to)) {
-    result = result.filter(item => item.date <= options.to);
-  }
-
-  return clone(result.slice(0, limit));
+function saveEconomyData(data) {
+  data.updatedAt = now();
+  saveData("economy", data);
+  return data;
 }
 
 /* =========================================================
    所持金
    ========================================================= */
 
-function getBalance() {
-  return data.balance;
+export function getBalance() {
+  return getEconomyData().balance;
 }
 
-function deposit(amount, note = "入金") {
-  const value = Number(amount);
-
-  if (!Number.isFinite(value) || value <= 0) {
-    return {
-      success: false,
-      message: "入金額は0より大きい数値にしてください。"
-    };
-  }
-
-  const amountToAdd = roundMoney(value);
-
-  data.balance = roundMoney(data.balance + amountToAdd);
-
-  addTransaction({
-    type: "deposit",
-    amount: amountToAdd,
-    note
-  });
-
-  const saved = saveEconomyData();
+export function getEconomyStatus() {
+  const data = getEconomyData();
 
   return {
-    success: saved !== false,
-    amount: amountToAdd,
     balance: data.balance,
-    message: saved === false
-      ? "入金しましたが、保存に失敗しました。"
-      : "入金しました。"
-  };
-}
-
-function withdraw(amount, note = "出金") {
-  const value = Number(amount);
-
-  if (!Number.isFinite(value) || value <= 0) {
-    return {
-      success: false,
-      message: "出金額は0より大きい数値にしてください。"
-    };
-  }
-
-  const amountToWithdraw = roundMoney(value);
-
-  if (amountToWithdraw > data.balance) {
-    return {
-      success: false,
-      message: "所持金が不足しています。"
-    };
-  }
-
-  data.balance = roundMoney(data.balance - amountToWithdraw);
-
-  addTransaction({
-    type: "withdraw",
-    amount: amountToWithdraw,
-    note
-  });
-
-  const saved = saveEconomyData();
-
-  return {
-    success: saved !== false,
-    amount: amountToWithdraw,
-    balance: data.balance,
-    message: saved === false
-      ? "出金しましたが、保存に失敗しました。"
-      : "出金しました。"
+    currency: ECONOMY_CONFIG.CURRENCY,
+    dailyInterestRate: ECONOMY_CONFIG.DAILY_INTEREST_RATE,
+    transactionCount: data.transactions.length,
+    loanCount: data.loans.length,
+    updatedAt: data.updatedAt
   };
 }
 
 /* =========================================================
-   借入情報
+   取引履歴
    ========================================================= */
 
-function getLoans() {
-  return clone(data.loans);
+export function getTransactions(options = {}) {
+  const data = getEconomyData();
+
+  let transactions = [...data.transactions];
+
+  if (options.type) {
+    transactions = transactions.filter(
+      item => item.type === options.type
+    );
+  }
+
+  if (options.limit !== undefined) {
+    const limit = Math.max(0, Number(options.limit) || 0);
+    transactions = transactions.slice(0, limit);
+  }
+
+  return transactions.sort((a, b) => {
+    return new Date(b.createdAt) - new Date(a.createdAt);
+  });
 }
 
-function getLoan(loanId) {
-  const loan = data.loans.find(item => item.id === loanId);
-
-  return loan ? clone(loan) : null;
+export function getTransaction(transactionId) {
+  return getEconomyData().transactions.find(
+    item => item.id === transactionId
+  ) ?? null;
 }
 
-function getActiveLoans() {
-  return clone(
-    data.loans.filter(loan => loan.status === "active")
-  );
+function createTransaction(data) {
+  return {
+    id: createId(),
+    type: data.type,
+    amount: data.amount,
+    balanceAfter: data.balanceAfter,
+    description: data.description || "",
+    relatedId: data.relatedId || null,
+    createdAt: now()
+  };
 }
 
 /* =========================================================
-   借入
+   CRの獲得
    ========================================================= */
 
-function borrow(options = {}) {
-  const amount = Number(options.amount);
-  const title = String(options.title || "借入").trim();
+export function earnCR(amount, description = "CR獲得", options = {}) {
+  const value = toAmount(amount);
+  const data = getEconomyData();
 
-  if (!Number.isFinite(amount) || amount <= 0) {
-    return {
-      success: false,
-      message: "借入額は0より大きい数値にしてください。"
-    };
-  }
+  data.balance = Math.round(
+    (data.balance + value) * 100
+  ) / 100;
 
-  if (!title) {
-    return {
-      success: false,
-      message: "借入の名前を入力してください。"
-    };
-  }
-
-  const principal = roundMoney(amount);
-
-  const dueDate = options.dueDate === undefined
-    ? addDays(todayString(), 7)
-    : String(options.dueDate);
-
-  if (!isValidDate(dueDate)) {
-    return {
-      success: false,
-      message: "返済期限の日付が正しくありません。"
-    };
-  }
-
-  if (dueDate < todayString()) {
-    return {
-      success: false,
-      message: "返済期限は今日以降の日付にしてください。"
-    };
-  }
-
-  const loan = normalizeLoan({
-    id: createId("loan"),
-    title,
-    principal,
-    outstandingPrincipal: principal,
-    accruedInterest: 0,
-    borrowedAt: todayString(),
-    dueDate,
-    status: "active",
-    lastInterestDate: todayString(),
-    createdAt: Date.now(),
-    updatedAt: Date.now()
+  const transaction = createTransaction({
+    type: "income",
+    amount: value,
+    balanceAfter: data.balance,
+    description,
+    relatedId: options.relatedId
   });
 
-  data.loans.push(loan);
-
-  data.balance = roundMoney(data.balance + principal);
-
-  addTransaction({
-    type: "borrow",
-    amount: principal,
-    loanId: loan.id,
-    note: `借入：${title}`
-  });
-
-  const saved = saveEconomyData();
+  data.transactions.push(transaction);
+  saveEconomyData(data);
 
   return {
-    success: saved !== false,
-    loan: clone(loan),
+    success: true,
+    amount: value,
     balance: data.balance,
-    message: saved !== false
-      ? "借入を登録しました。"
-      : "借入を登録しましたが、保存に失敗しました。"
+    transaction
+  };
+}
+
+/* =========================================================
+   CRの支払い
+   ========================================================= */
+
+export function spendCR(amount, description = "CR支払い", options = {}) {
+  const value = toAmount(amount);
+  const data = getEconomyData();
+
+  if (data.balance < value) {
+    return {
+      success: false,
+      reason: "insufficient_funds",
+      required: value,
+      balance: data.balance,
+      shortfall: Math.round(
+        (value - data.balance) * 100
+      ) / 100
+    };
+  }
+
+  data.balance = Math.round(
+    (data.balance - value) * 100
+  ) / 100;
+
+  const transaction = createTransaction({
+    type: "expense",
+    amount: value,
+    balanceAfter: data.balance,
+    description,
+    relatedId: options.relatedId
+  });
+
+  data.transactions.push(transaction);
+  saveEconomyData(data);
+
+  return {
+    success: true,
+    amount: value,
+    balance: data.balance,
+    transaction
+  };
+}
+
+/* =========================================================
+   残高の変更
+   ========================================================= */
+
+/*
+  管理用の残高変更関数。
+
+  通常のゲーム内処理では earnCR / spendCR を使用する。
+  この関数は管理画面などからの調整用。
+*/
+
+export function setBalance(amount, description = "残高調整") {
+  const value = Number(amount);
+
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error("残高は0以上の数値にしてください。");
+  }
+
+  const data = getEconomyData();
+  const nextBalance = Math.round(value * 100) / 100;
+  const difference = Math.round(
+    (nextBalance - data.balance) * 100
+  ) / 100;
+
+  data.balance = nextBalance;
+
+  if (difference !== 0) {
+    data.transactions.push(createTransaction({
+      type: "adjustment",
+      amount: difference,
+      balanceAfter: data.balance,
+      description
+    }));
+  }
+
+  saveEconomyData(data);
+
+  return {
+    balance: data.balance,
+    difference
   };
 }
 
@@ -541,419 +294,80 @@ function borrow(options = {}) {
    ========================================================= */
 
 /*
-  日利5%の複利計算。
+  日利3%で1日分の利息を計算する。
 
-  毎日の利息は、未返済の元本に対して計算します。
-  発生した利息は accruedInterest に加算します。
+  この関数は計算結果を返すだけで、
+  所持金や借入データを変更しない。
 
-  利息を元本へ組み入れる方式ではなく、
-  未返済元本と未払い利息を分けて管理します。
-  ========================================================= */
+  利息の発生タイミング・複利方式・端数処理の
+  最終ルールが決まった後に自動処理へ接続する。
+*/
 
-function applyOneDayInterest(loan) {
-  if (loan.status !== "active") {
-    return 0;
+export function calculateDailyInterest(principal) {
+  const value = Number(principal);
+
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error("元本は0以上の数値にしてください。");
   }
 
-  if (loan.outstandingPrincipal <= 0) {
-    return 0;
-  }
-
-  const interest = roundMoney(
-    loan.outstandingPrincipal *
-    ECONOMY_CONFIG.dailyInterestRate
-  );
-
-  loan.accruedInterest = roundMoney(
-    loan.accruedInterest + interest
-  );
-
-  loan.lastInterestDate = addDays(loan.lastInterestDate, 1);
-  loan.updatedAt = Date.now();
-
-  return interest;
-}
-
-function accrueInterestThrough(targetDate = todayString()) {
-  if (!isValidDate(targetDate)) {
-    return {
-      success: false,
-      message: "利息計算の日付が正しくありません。"
-    };
-  }
-
-  if (targetDate < data.lastInterestDate) {
-    return {
-      success: false,
-      message: "過去の日付には利息を計算できません。"
-    };
-  }
-
-  let totalInterestAdded = 0;
-  let daysProcessed = 0;
-
-  for (const loan of data.loans) {
-    if (loan.status !== "active") {
-      continue;
-    }
-
-    let lastDate = loan.lastInterestDate;
-
-    if (!isValidDate(lastDate)) {
-      lastDate = loan.borrowedAt;
-    }
-
-    while (lastDate < targetDate) {
-      const nextDate = addDays(lastDate, 1);
-
-      if (!nextDate) {
-        break;
-      }
-
-      const interest = applyOneDayInterest(loan);
-
-      totalInterestAdded = roundMoney(
-        totalInterestAdded + interest
-      );
-
-      lastDate = nextDate;
-      daysProcessed += 1;
-    }
-  }
-
-  data.lastInterestDate = targetDate;
-
-  if (totalInterestAdded > 0) {
-    addTransaction({
-      type: "interest",
-      amount: totalInterestAdded,
-      note: "日利5%の利息"
-    });
-  }
-
-  const saved = saveEconomyData();
+  const interest =
+    value * ECONOMY_CONFIG.DAILY_INTEREST_RATE;
 
   return {
-    success: saved !== false,
-    totalInterestAdded,
-    daysProcessed,
-    message: "利息計算を完了しました。"
+    principal: value,
+    rate: ECONOMY_CONFIG.DAILY_INTEREST_RATE,
+    interest: Math.round(interest * 100) / 100,
+    total: Math.round(
+      (value + interest) * 100
+    ) / 100
   };
 }
 
-function calculateNextDailyInterest(loanId) {
-  const loan = data.loans.find(item => item.id === loanId);
-
-  if (!loan || loan.status !== "active") {
-    return 0;
-  }
-
-  return roundMoney(
-    loan.outstandingPrincipal *
-    ECONOMY_CONFIG.dailyInterestRate
-  );
-}
-
 /* =========================================================
-   返済期限・猶予期間
+   借入データ
    ========================================================= */
 
 /*
-  期限当日までは期限内。
-  期限の翌日から3日間を猶予期間とする。
-  猶予期間終了後は overdue として判定する。
+  借入・返済の具体的なルールは未確定。
 
-  追加の延滞金・延滞利率は設定していない。
-  ========================================================= */
+  そのため、この段階では既存の借入データを
+  読み取る機能だけを用意する。
+*/
 
-function getLoanStatusDetails(loanOrId) {
-  const loan = typeof loanOrId === "string"
-    ? data.loans.find(item => item.id === loanOrId)
-    : loanOrId;
-
-  if (!loan) {
-    return null;
-  }
-
-  if (loan.status === "paid") {
-    return {
-      loanId: loan.id,
-      status: "paid",
-      statusText: "返済済み",
-      daysUntilDue: null,
-      graceDaysRemaining: 0
-    };
-  }
-
-  const today = todayString();
-  const daysUntilDue = daysBetween(today, loan.dueDate);
-
-  let status;
-  let statusText;
-  let graceDaysRemaining = 0;
-
-  if (daysUntilDue > 0) {
-    status = "active";
-    statusText = "返済期限前";
-  } else if (daysUntilDue === 0) {
-    status = "due";
-    statusText = "返済期限当日";
-  } else {
-    const daysPastDue = Math.abs(daysUntilDue);
-
-    if (daysPastDue <= ECONOMY_CONFIG.gracePeriodDays) {
-      status = "grace";
-      statusText = "猶予期間中";
-
-      graceDaysRemaining =
-        ECONOMY_CONFIG.gracePeriodDays - daysPastDue;
-    } else {
-      status = "overdue";
-      statusText = "期限超過";
-    }
-  }
-
-  return {
-    loanId: loan.id,
-    status,
-    statusText,
-    daysUntilDue,
-    gracePeriodDays: ECONOMY_CONFIG.gracePeriodDays,
-    graceDaysRemaining
-  };
+export function getLoans() {
+  return getEconomyData().loans;
 }
 
-function getLoanDetails(loanId) {
-  const loan = data.loans.find(item => item.id === loanId);
-
-  if (!loan) {
-    return null;
-  }
-
-  const status = getLoanStatusDetails(loan);
-
-  return {
-    ...clone(loan),
-    totalOutstanding: roundMoney(
-      loan.outstandingPrincipal + loan.accruedInterest
-    ),
-    nextDailyInterest: calculateNextDailyInterest(loan.id),
-    statusDetails: status
-  };
-}
-
-function getAllLoanDetails() {
-  return data.loans.map(loan => getLoanDetails(loan.id));
+export function getLoan(loanId) {
+  return getLoans().find(
+    loan => loan.id === loanId
+  ) ?? null;
 }
 
 /* =========================================================
-   返済
+   取引履歴の集計
    ========================================================= */
 
-/*
-  返済順序:
-  1. 未払い利息
-  2. 未返済元本
+export function getTransactionSummary() {
+  const transactions = getEconomyData().transactions;
 
-  所持金を超える金額は返済できません。
-  ========================================================= */
+  const income = transactions
+    .filter(item => item.type === "income")
+    .reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
-function repay(loanId, amount) {
-  const loan = data.loans.find(item => item.id === loanId);
+  const expense = transactions
+    .filter(item => item.type === "expense")
+    .reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
-  if (!loan || loan.status !== "active") {
-    return {
-      success: false,
-      message: "返済できる借入が見つかりません。"
-    };
-  }
-
-  const requestedAmount = Number(amount);
-
-  if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
-    return {
-      success: false,
-      message: "返済額は0より大きい数値にしてください。"
-    };
-  }
-
-  const repaymentAmount = roundMoney(requestedAmount);
-
-  if (repaymentAmount > data.balance) {
-    return {
-      success: false,
-      message: "所持金が不足しています。"
-    };
-  }
-
-  const totalDebt = roundMoney(
-    loan.accruedInterest + loan.outstandingPrincipal
-  );
-
-  const actualPayment = Math.min(repaymentAmount, totalDebt);
-
-  // 先に利息を支払う
-  const interestPayment = Math.min(
-    actualPayment,
-    loan.accruedInterest
-  );
-
-  loan.accruedInterest = roundMoney(
-    loan.accruedInterest - interestPayment
-  );
-
-  // 残った返済額で元本を減らす
-  const principalPayment = Math.min(
-    roundMoney(actualPayment - interestPayment),
-    loan.outstandingPrincipal
-  );
-
-  loan.outstandingPrincipal = roundMoney(
-    loan.outstandingPrincipal - principalPayment
-  );
-
-  data.balance = roundMoney(data.balance - actualPayment);
-
-  if (
-    loan.outstandingPrincipal <= 0 &&
-    loan.accruedInterest <= 0
-  ) {
-    loan.outstandingPrincipal = 0;
-    loan.accruedInterest = 0;
-    loan.status = "paid";
-  }
-
-  loan.updatedAt = Date.now();
-
-  addTransaction({
-    type: "repayment",
-    amount: actualPayment,
-    loanId: loan.id,
-    note:
-      `返済：${loan.title}` +
-      `（利息 ${interestPayment}、元本 ${principalPayment}）`
-  });
-
-  const saved = saveEconomyData();
+  const adjustment = transactions
+    .filter(item => item.type === "adjustment")
+    .reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
   return {
-    success: saved !== false,
-    requestedAmount: repaymentAmount,
-    actualPayment,
-    interestPayment,
-    principalPayment,
-    remainingInterest: loan.accruedInterest,
-    remainingPrincipal: loan.outstandingPrincipal,
-    totalOutstanding: roundMoney(
-      loan.accruedInterest + loan.outstandingPrincipal
-    ),
-    balance: data.balance,
-    loanStatus: loan.status,
-    message: saved !== false
-      ? "返済しました。"
-      : "返済しましたが、保存に失敗しました。"
-  };
-}
-
-function repayAll(loanId) {
-  const loan = data.loans.find(item => item.id === loanId);
-
-  if (!loan || loan.status !== "active") {
-    return {
-      success: false,
-      message: "返済できる借入が見つかりません。"
-    };
-  }
-
-  const totalDebt = roundMoney(
-    loan.outstandingPrincipal + loan.accruedInterest
-  );
-
-  if (totalDebt > data.balance) {
-    return {
-      success: false,
-      message: "全額返済するには所持金が不足しています。",
-      required: totalDebt,
-      balance: data.balance
-    };
-  }
-
-  return repay(loanId, totalDebt);
-}
-
-/* =========================================================
-   経済状況の集計
-   ========================================================= */
-
-function getTotalPrincipal() {
-  return roundMoney(
-    data.loans
-      .filter(loan => loan.status === "active")
-      .reduce(
-        (total, loan) => total + loan.outstandingPrincipal,
-        0
-      )
-  );
-}
-
-function getTotalInterest() {
-  return roundMoney(
-    data.loans
-      .filter(loan => loan.status === "active")
-      .reduce(
-        (total, loan) => total + loan.accruedInterest,
-        0
-      )
-  );
-}
-
-function getTotalDebt() {
-  return roundMoney(
-    getTotalPrincipal() + getTotalInterest()
-  );
-}
-
-function getEconomySummary() {
-  const activeLoans = data.loans.filter(
-    loan => loan.status === "active"
-  );
-
-  const overdueLoans = activeLoans.filter(
-    loan => getLoanStatusDetails(loan).status === "overdue"
-  );
-
-  const graceLoans = activeLoans.filter(
-    loan => getLoanStatusDetails(loan).status === "grace"
-  );
-
-  const dueTodayLoans = activeLoans.filter(
-    loan => getLoanStatusDetails(loan).status === "due"
-  );
-
-  const principal = getTotalPrincipal();
-  const interest = getTotalInterest();
-
-  return {
-    balance: data.balance,
-    activeLoanCount: activeLoans.length,
-    paidLoanCount: data.loans.filter(
-      loan => loan.status === "paid"
-    ).length,
-    principal,
-    interest,
-    totalDebt: roundMoney(principal + interest),
-    estimatedNextDailyInterest: roundMoney(
-      activeLoans.reduce(
-        (total, loan) =>
-          total +
-          loan.outstandingPrincipal *
-          ECONOMY_CONFIG.dailyInterestRate,
-        0
-      )
-    ),
-    overdueCount: overdueLoans.length,
-    gracePeriodCount: graceLoans.length,
-    dueTodayCount: dueTodayLoans.length
+    income: Math.round(income * 100) / 100,
+    expense: Math.round(expense * 100) / 100,
+    adjustment: Math.round(adjustment * 100) / 100,
+    transactionCount: transactions.length
   };
 }
 
@@ -961,90 +375,48 @@ function getEconomySummary() {
    初期化
    ========================================================= */
 
-function initializeEconomy() {
-  data = loadEconomyData();
-
-  // 前回の利息計算日から今日までを計算する
-  const result = accrueInterestThrough(todayString());
-
-  return {
-    summary: getEconomySummary(),
-    interestResult: result
-  };
-}
-
-/* =========================================================
-   設定・データ取得
-   ========================================================= */
-
-function getConfig() {
-  return {
-    ...ECONOMY_CONFIG
-  };
-}
-
-function getEconomyData() {
-  return clone(data);
-}
-
 /*
-  リセットは既存の経済データをすべて消去するため、
-  UIの確認操作などから明示的に呼び出すこと。
-  通常の初期化処理からは呼び出さない。
+  保存データが存在しない場合だけ初期データを作る。
+
+  既存データがある場合は上書きしない。
 */
-function resetEconomy() {
-  data = createDefaultData();
 
-  const saved = saveEconomyData();
+export function initializeEconomy() {
+  const existing = loadData("economy", null);
 
-  return {
-    success: saved !== false,
-    summary: getEconomySummary(),
-    message: saved !== false
-      ? "経済データを初期状態に戻しました。"
-      : "初期化しましたが、保存に失敗しました。"
-  };
+  if (
+    !existing ||
+    typeof existing !== "object" ||
+    Array.isArray(existing)
+  ) {
+    saveData("economy", createDefaultEconomy());
+  }
+
+  return getEconomyStatus();
 }
 
 /* =========================================================
-   公開API
+   デフォルトエクスポート
    ========================================================= */
 
-export const economy = Object.freeze({
-  getConfig,
+export default {
+  ECONOMY_CONFIG,
 
   initializeEconomy,
-  getEconomyData,
-  getEconomySummary,
 
   getBalance,
-  deposit,
-  withdraw,
-
-  getLoans,
-  getLoan,
-  getActiveLoans,
-  getLoanDetails,
-  getAllLoanDetails,
-
-  borrow,
-
-  accrueInterestThrough,
-  calculateNextDailyInterest,
-
-  getLoanStatusDetails,
-
-  repay,
-  repayAll,
-
-  getTotalPrincipal,
-  getTotalInterest,
-  getTotalDebt,
+  getEconomyStatus,
 
   getTransactions,
+  getTransaction,
+  getTransactionSummary,
 
-  resetEconomy,
-  save: saveEconomyData
-});
+  earnCR,
+  spendCR,
+  setBalance,
 
-export default economy;
+  calculateDailyInterest,
+
+  getLoans,
+  getLoan
+};
