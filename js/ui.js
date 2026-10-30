@@ -1,2575 +1,652 @@
 /* =========================================================
-   ONE FOR ALL — COSMOS
+   ALGOL — Study Constellation
    js/ui.js
-   画面操作・各機能の接続・表示更新
+   UI CONTROL SYSTEM
    ========================================================= */
 
 "use strict";
 
-import { store } from "./store.js";
-import { study } from "./study.js";
-import { calendar } from "./calendar.js";
-import { statistics } from "./statistics.js";
-import { goals } from "./goals.js";
-import { countdown } from "./countdown.js";
-import { economy } from "./economy.js";
-import { rocket } from "./rocket.js";
-import {
-  getSettings,
-  saveSettings
-} from "./settings.js";
+import * as Store from "./store.js";
+import * as Study from "./study.js";
+import * as Calendar from "./calendar.js";
+import * as Statistics from "./statistics.js";
+import * as Goals from "./goals.js";
+import * as Countdown from "./countdown.js";
+import * as Economy from "./economy.js";
+import * as Rocket from "./rocket.js";
+import * as Settings from "./settings.js";
 
-(() => {
-  const $ = (selector, root = document) =>
-    root.querySelector(selector);
+/* =========================================================
+   共通ユーティリティ
+   ========================================================= */
 
-  const $$ = (selector, root = document) =>
-    Array.from(root.querySelectorAll(selector));
+const $ = (selector, root = document) =>
+  root.querySelector(selector);
 
-  const STORAGE_KEY = "ofa-cosmos-data-v1";
+const $$ = (selector, root = document) =>
+  [...root.querySelectorAll(selector)];
 
-  const DEFAULTS = {
-    settings: {
-      dailyGoal: 120,
-      weeklyGoal: 840,
-      minimumAction: 5,
-      animations: true,
-      theme: "cosmos",
-      shortcuts: [
-        "home",
-        "study",
-        "calendar",
-        "statistics",
-        "goals"
-      ]
-    },
-    subjects: [
-      { id: "math", name: "数学", color: "#69a7ff" },
-      { id: "english", name: "英語", color: "#b69aff" },
-      { id: "japanese", name: "国語", color: "#ff8fc7" },
-      { id: "science", name: "理科", color: "#76e3b0" },
-      { id: "social", name: "社会", color: "#ffd780" }
-    ],
-    studyItems: [],
-    studyRecords: [],
-    events: [],
-    tasks: [],
-    goals: [],
-    goalNodes: [],
-    habits: [],
-    countdowns: [],
-    timetable: [],
-    notifications: [],
-    economy: {
-      balance: 0,
-      transactions: [],
-      loans: []
-    },
-    rocket: {
-      name: "COSMOS",
-      level: 1,
-      exp: 0,
-      parts: [],
-      missions: [],
-      explorations: []
-    }
+const state = {
+  currentView: "home",
+  calendarDate: new Date(),
+  calendarMode: "month",
+  selectedDate: new Date(),
+  statisticsPeriod: "week",
+  statisticsGrouping: "subject",
+  timerInterval: null,
+  dialogCallback: null
+};
+
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, char => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[char]);
+}
+
+function dateKey(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function showMessage(message, type = "info") {
+  const element = $("#cosmos-message");
+
+  if (!element) {
+    console.log(`[ALGOL ${type}] ${message}`);
+    return;
+  }
+
+  element.textContent = message;
+  element.dataset.type = type;
+  element.classList.add("show");
+
+  clearTimeout(showMessage.timer);
+
+  showMessage.timer = setTimeout(() => {
+    element.classList.remove("show");
+  }, 2800);
+}
+
+function safeCall(callback, errorMessage = "処理に失敗しました。") {
+  try {
+    return callback();
+  } catch (error) {
+    console.error("[ALGOL]", error);
+    showMessage(error.message || errorMessage, "error");
+    return null;
+  }
+}
+
+/* =========================================================
+   初期化
+   ========================================================= */
+
+function initializeModules() {
+  safeCall(() => Study.getAllSubjects());
+  safeCall(() => Calendar.getAllCalendarEvents());
+  safeCall(() => Goals.getAllGoals());
+  safeCall(() => Countdown.initializeCountdown());
+  safeCall(() => Economy.initializeEconomy());
+  safeCall(() => Rocket.initializeRocket());
+  safeCall(() => Settings.initializeSettings());
+}
+
+function initializeUI() {
+  bindNavigation();
+  bindGlobalActions();
+  bindStudyActions();
+  bindCalendarActions();
+  bindGoalActions();
+  bindCountdownActions();
+  bindSettingsActions();
+
+  renderCurrentView();
+  startTimerDisplay();
+
+  document.documentElement.dataset.theme =
+    Settings.getTheme?.() || "cosmos";
+}
+
+/* =========================================================
+   画面切り替え
+   ========================================================= */
+
+function changeView(view) {
+  if (!view) return;
+
+  state.currentView = view;
+
+  $$("[data-view-panel]").forEach(panel => {
+    panel.hidden = panel.dataset.viewPanel !== view;
+  });
+
+  $$("[data-view]").forEach(button => {
+    button.classList.toggle(
+      "active",
+      button.dataset.view === view
+    );
+  });
+
+  renderCurrentView();
+
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth"
+  });
+}
+
+function bindNavigation() {
+  $$("[data-view]").forEach(button => {
+    button.addEventListener("click", () => {
+      changeView(button.dataset.view);
+    });
+  });
+
+  $("#menu-open")?.addEventListener("click", () => {
+    $("#side-menu")?.classList.add("open");
+    $("#menu-backdrop")?.classList.add("show");
+  });
+
+  $("#menu-close")?.addEventListener("click", closeMenu);
+  $("#menu-backdrop")?.addEventListener("click", closeMenu);
+}
+
+function closeMenu() {
+  $("#side-menu")?.classList.remove("open");
+  $("#menu-backdrop")?.classList.remove("show");
+}
+
+function renderCurrentView() {
+  const renderers = {
+    home: renderHome,
+    study: renderStudy,
+    calendar: renderCalendar,
+    statistics: renderStatistics,
+    goals: renderGoals,
+    countdown: renderCountdown,
+    economy: renderEconomy,
+    rocket: renderRocket,
+    settings: renderSettings
   };
 
-  let data = loadData();
-  let currentView = "home";
-  let selectedDate = dateKey(new Date());
-  let calendarMonth = new Date();
-  let dialogResolve = null;
-  let timerInterval = null;
-  let timerStartedAt = 0;
-  let timerAccumulated = 0;
-  let timerRunning = false;
+  renderers[state.currentView]?.();
+}
 
-  /* =======================================================
-     共通処理
-     ======================================================= */
+/* =========================================================
+   ホーム
+   ========================================================= */
 
-  function clone(value) {
-    return JSON.parse(JSON.stringify(value));
+function renderHome() {
+  const today = dateKey();
+
+  const total = Study.getDailyStudyMinutes(today);
+  const target = Settings.getDailyTarget?.() || 60;
+
+  const percent = Math.min(
+    100,
+    Math.round(total / Math.max(1, target) * 100)
+  );
+
+  setText("#home-today-time", Study.formatStudyMinutes(total));
+  setText("#home-goal-percent", `${percent}%`);
+  setWidth("#home-goal-progress", percent);
+
+  const rocket = Rocket.getRocketStatus?.();
+
+  if (rocket) {
+    setText("#home-rocket-level", rocket.level);
+    setText("#home-rocket-exp", rocket.experience);
   }
 
-  function uid(prefix = "item") {
-    return `${prefix}-${Date.now()}-${Math.random()
-      .toString(36).slice(2, 8)}`;
-  }
-
-  function dateKey(date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-
-    return `${year}-${month}-${day}`;
-  }
-
-  function todayKey() {
-    return dateKey(new Date());
-  }
-
-  function parseDate(value) {
-    if (!value) return new Date();
-
-    const [year, month, day] = value.split("-").map(Number);
-
-    return new Date(year, month - 1, day);
-  }
-
-  function escapeHTML(value) {
-    return String(value ?? "").replace(/[&<>"']/g, char => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;"
-    })[char]);
-  }
-
-  function formatMinutes(value) {
-    const minutes = Math.max(0, Math.floor(Number(value) || 0));
-    const hours = Math.floor(minutes / 60);
-    const remainder = minutes % 60;
-
-    if (hours && remainder) {
-      return `${hours}時間${remainder}分`;
-    }
-
-    if (hours) return `${hours}時間`;
-
-    return `${remainder}分`;
-  }
-
-  function formatClock(seconds) {
-    const total = Math.max(0, Math.floor(seconds));
-    const hours = String(Math.floor(total / 3600)).padStart(2, "0");
-    const minutes = String(Math.floor(total / 60) % 60).padStart(2, "0");
-    const secs = String(total % 60).padStart(2, "0");
-
-    return `${hours}:${minutes}:${secs}`;
-  }
-
-  function setText(selector, value) {
-    const element = $(selector);
-
-    if (element) {
-      element.textContent = String(value ?? "");
-    }
-  }
-
-  function setValue(selector, value) {
-    const element = $(selector);
-
-    if (element) {
-      element.value = value ?? "";
-    }
-  }
-
-  function setChecked(selector, value) {
-    const element = $(selector);
-
-    if (element) {
-      element.checked = Boolean(value);
-    }
-  }
-
-  function setWidth(selector, value) {
-    const element = $(selector);
-
-    if (!element) return;
-
-    const percent = Math.max(0, Math.min(100, Number(value) || 0));
-
-    element.style.width = `${percent}%`;
-    element.setAttribute("aria-valuenow", String(Math.round(percent)));
-  }
-
-  function showMessage(message) {
-    const element = $("#cosmos-message");
-
-    if (!element) {
-      console.info(message);
-      return;
-    }
-
-    element.textContent = message;
-    element.hidden = false;
-    element.classList.add("is-visible");
-
-    clearTimeout(showMessage.timeout);
-
-    showMessage.timeout = setTimeout(() => {
-      element.classList.remove("is-visible");
-      element.hidden = true;
-    }, 2800);
-  }
-
-  function safeCall(object, method, ...args) {
-    if (!object || typeof object[method] !== "function") {
-      return undefined;
-    }
-
-    try {
-      return object[method](...args);
-    } catch (error) {
-      console.error(`${method} の実行に失敗しました:`, error);
-      showMessage("処理に失敗しました。");
-      return undefined;
-    }
-  }
-
-  function colorForIndex(index) {
-    const colors = [
-      "#69a7ff",
-      "#b69aff",
-      "#ff8fc7",
-      "#76e3b0",
-      "#ffd780",
-      "#66e0e8",
-      "#ff8295"
-    ];
-
-    return colors[index % colors.length];
-  }
-
-  /* =======================================================
-     データの読み込み・保存
-     ======================================================= */
-
-  function loadData() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-
-      if (!raw) return clone(DEFAULTS);
-
-      const parsed = JSON.parse(raw);
-
-      return {
-        ...clone(DEFAULTS),
-        ...parsed,
-
-        settings: {
-          ...clone(DEFAULTS.settings),
-          ...(parsed.settings || {})
-        },
-
-        economy: {
-          ...clone(DEFAULTS.economy),
-          ...(parsed.economy || {})
-        },
-
-        rocket: {
-          ...clone(DEFAULTS.rocket),
-          ...(parsed.rocket || {})
-        },
-
-        subjects: Array.isArray(parsed.subjects)
-          ? parsed.subjects
-          : clone(DEFAULTS.subjects),
-
-        studyItems: Array.isArray(parsed.studyItems)
-          ? parsed.studyItems
-          : [],
-
-        studyRecords: Array.isArray(parsed.studyRecords)
-          ? parsed.studyRecords
-          : [],
-
-        events: Array.isArray(parsed.events)
-          ? parsed.events
-          : [],
-
-        tasks: Array.isArray(parsed.tasks)
-          ? parsed.tasks
-          : [],
-
-        goals: Array.isArray(parsed.goals)
-          ? parsed.goals
-          : [],
-
-        goalNodes: Array.isArray(parsed.goalNodes)
-          ? parsed.goalNodes
-          : [],
-
-        habits: Array.isArray(parsed.habits)
-          ? parsed.habits
-          : [],
-
-        countdowns: Array.isArray(parsed.countdowns)
-          ? parsed.countdowns
-          : [],
-
-        timetable: Array.isArray(parsed.timetable)
-          ? parsed.timetable
-          : [],
-
-        notifications: Array.isArray(parsed.notifications)
-          ? parsed.notifications
-          : []
-      };
-    } catch (error) {
-      console.error("保存データを読み込めませんでした:", error);
-      return clone(DEFAULTS);
-    }
-  }
-
-  function saveData() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-      return true;
-    } catch (error) {
-      console.error("データを保存できませんでした:", error);
-      showMessage("保存に失敗しました。");
-      return false;
-    }
-  }
-
-  function totalMinutes(records) {
-    return records.reduce(
-      (sum, record) =>
-        sum + Math.max(0, Number(record.minutes) || 0),
-      0
-    );
-  }
-
-  function recordsForDate(date) {
-    return data.studyRecords.filter(record => record.date === date);
-  }
-
-  function totalForDate(date) {
-    return totalMinutes(recordsForDate(date));
-  }
-
-  /* =======================================================
-     メニュー
-     ======================================================= */
-
-  function openMenu() {
-    const menu = $("#side-menu");
-    const backdrop = $("#menu-backdrop");
-
-    if (menu) {
-      menu.hidden = false;
-      menu.inert = false;
-      menu.classList.add("is-open");
-      menu.setAttribute("aria-hidden", "false");
-    }
-
-    if (backdrop) {
-      backdrop.hidden = false;
-      backdrop.classList.add("is-visible");
-    }
-
-    $("#menu-open")?.setAttribute("aria-expanded", "true");
-  }
-
-  function closeMenu() {
-    const menu = $("#side-menu");
-    const backdrop = $("#menu-backdrop");
-
-    if (menu) {
-      menu.classList.remove("is-open");
-      menu.setAttribute("aria-hidden", "true");
-      menu.inert = true;
-      menu.hidden = true;
-    }
-
-    if (backdrop) {
-      backdrop.classList.remove("is-visible");
-      backdrop.hidden = true;
-    }
-
-    $("#menu-open")?.setAttribute("aria-expanded", "false");
-  }
-
-  /* =======================================================
-     画面切り替え
-     ======================================================= */
-
-  function showView(name) {
-    const target = $(`#view-${CSS.escape(name)}`);
-
-    if (!target) {
-      showMessage("この画面は見つかりませんでした。");
-      return;
-    }
-
-    currentView = name;
-
-    $$(".page-section").forEach(section => {
-      const active = section === target;
-
-      section.hidden = !active;
-      section.classList.toggle("active", active);
-      section.setAttribute("aria-hidden", String(!active));
-    });
-
-    $$("[data-view]").forEach(button => {
-      const active = button.dataset.view === name;
-
-      button.classList.toggle("active", active);
-
-      if (active) {
-        button.setAttribute("aria-current", "page");
-      } else {
-        button.removeAttribute("aria-current");
-      }
-    });
-
-    closeMenu();
-    renderCurrentView();
-
-    window.scrollTo({
-      top: 0,
-      behavior: data.settings.animations ? "smooth" : "auto"
-    });
-  }
-
-  function renderCurrentView() {
-    const renderers = {
-      home: renderHome,
-      study: renderStudy,
-      calendar: renderCalendar,
-      statistics: renderStatistics,
-      goals: renderGoals,
-      rocket: renderRocket,
-      economy: renderEconomy,
-      countdown: renderCountdown,
-      notifications: renderNotifications,
-      settings: renderSettings
-    };
-
-    if (renderers[currentView]) {
-      renderers[currentView]();
-    }
-  }
-
-  /* =======================================================
-     ダイアログ
-     ======================================================= */
-
-  function dialog(title, content, confirmText = "保存") {
-    const element = $("#cosmos-dialog");
-    const titleElement = $("#cosmos-dialog-title");
-    const contentElement = $("#cosmos-dialog-content");
-    const confirmButton = $("#cosmos-dialog-confirm");
-
-    if (!element || !contentElement || !confirmButton) {
-      showMessage("ダイアログのHTMLが見つかりません。");
-      return Promise.resolve(null);
-    }
-
-    if (dialogResolve) {
-      closeDialog(null);
-    }
-
-    if (titleElement) {
-      titleElement.textContent = title;
-    }
-
-    contentElement.innerHTML = content;
-    confirmButton.textContent = confirmText;
-    confirmButton.disabled = false;
-
-    if (typeof element.showModal === "function") {
-      element.showModal();
-    } else {
-      element.setAttribute("open", "");
-    }
-
-    return new Promise(resolve => {
-      dialogResolve = resolve;
-    });
-  }
-
-  function closeDialog(result = null) {
-    const element = $("#cosmos-dialog");
-
-    if (element) {
-      if (typeof element.close === "function" && element.open) {
-        element.close();
-      } else {
-        element.removeAttribute("open");
-      }
-    }
-
-    if (dialogResolve) {
-      const resolve = dialogResolve;
-      dialogResolve = null;
-      resolve(result);
-    }
-  }
-
-  function readDialogFields() {
-    const result = {};
-
-    const fields = $$(
-      "#cosmos-dialog-content input, " +
-      "#cosmos-dialog-content select, " +
-      "#cosmos-dialog-content textarea"
-    );
-
-    for (const field of fields) {
-      if (!field.reportValidity()) {
-        return null;
-      }
-
-      if (!field.name) continue;
-
-      result[field.name] = field.type === "checkbox"
-        ? field.checked
-        : field.value.trim();
-    }
-
-    return result;
-  }
-
-  /* =======================================================
-     学習記録
-     ======================================================= */
-
-  function addStudyRecord(record) {
-    const minutes = Math.floor(Number(record.minutes));
-    const subject = String(record.subject || "").trim();
-    const item = String(record.item || "").trim();
-
-    if (!Number.isFinite(minutes) || minutes < 1) {
-      showMessage("学習時間は1分以上にしてください。");
-      return false;
-    }
-
-    if (!subject) {
-      showMessage("科目を入力してください。");
-      return false;
-    }
-
-    const date = record.date || todayKey();
-
-    data.studyRecords.push({
-      id: uid("study"),
-      date,
-      subject,
-      item,
-      minutes,
-      note: String(record.note || "").trim(),
-      createdAt: new Date().toISOString()
-    });
-
-    if (!data.subjects.some(entry => entry.name === subject)) {
-      data.subjects.push({
-        id: uid("subject"),
-        name: subject,
-        color: colorForIndex(data.subjects.length)
-      });
-    }
-
-    if (item && !data.studyItems.some(entry =>
-      entry.subject === subject && entry.name === item
-    )) {
-      data.studyItems.push({
-        id: uid("study-item"),
-        subject,
-        name: item
-      });
-    }
-
-    saveData();
-
-    safeCall(study, "addManualRecord", {
-      subject,
-      item,
-      minutes,
-      date,
-      note: record.note || ""
-    });
-
-    renderAll();
-    showMessage("学習記録を保存しました。");
-
-    return true;
-  }
-
-  function renderSubjects() {
-    const list = $("#study-subject-list");
-    if (!list) return;
-
-    list.innerHTML = data.subjects.map(subject => {
-      const minutes = totalMinutes(
-        data.studyRecords.filter(
-          record => record.subject === subject.name
-        )
-      );
-
-      return `
-        <article class="subject-card">
-          <span
-            class="subject-color"
-            style="background:${escapeHTML(subject.color)}"
-          ></span>
-
-          <div class="subject-card-info">
-            <strong>${escapeHTML(subject.name)}</strong>
-            <small>累計 ${formatMinutes(minutes)}</small>
-          </div>
-
-          <button
-            type="button"
-            data-action="remove-subject"
-            data-id="${escapeHTML(subject.id)}"
-          >削除</button>
-        </article>
-      `;
-    }).join("") || "<p>科目を追加してください。</p>";
-
-    const subjectSelect = $("#manual-study-subject");
-    const itemSelect = $("#manual-study-item");
-
-    if (subjectSelect) {
-      const previous = subjectSelect.value;
-
-      subjectSelect.innerHTML =
-        '<option value="">科目を選択</option>' +
-        data.subjects.map(subject => `
-          <option value="${escapeHTML(subject.name)}">
-            ${escapeHTML(subject.name)}
-          </option>
-        `).join("");
-
-      if (data.subjects.some(subject => subject.name === previous)) {
-        subjectSelect.value = previous;
-      }
-    }
-
-    if (itemSelect) {
-      renderManualStudyItems();
-    }
-  }
-
-  function renderManualStudyItems() {
-    const subjectSelect = $("#manual-study-subject");
-    const itemSelect = $("#manual-study-item");
-
-    if (!subjectSelect || !itemSelect) return;
-
-    const selectedSubject = subjectSelect.value;
-    const previous = itemSelect.value;
-
-    const items = data.studyItems.filter(
-      item => item.subject === selectedSubject
-    );
-
-    itemSelect.innerHTML =
-      '<option value="">項目を選択（任意）</option>' +
-      items.map(item => `
-        <option value="${escapeHTML(item.name)}">
-          ${escapeHTML(item.name)}
-        </option>
-      `).join("");
-
-    if (items.some(item => item.name === previous)) {
-      itemSelect.value = previous;
-    }
-  }
-
-  function renderStudyRecords() {
-    const list = $("#study-record-list");
-    if (!list) return;
-
-    const records = [...data.studyRecords].sort((a, b) =>
-      `${b.date}${b.createdAt || ""}`.localeCompare(
-        `${a.date}${a.createdAt || ""}`
-      )
-    );
-
-    list.innerHTML = records.slice(0, 100).map(record => `
-      <article class="record-card">
-        <div>
-          <strong>${escapeHTML(record.subject)}</strong>
-          ${record.item
-            ? `<span>${escapeHTML(record.item)}</span>`
-            : ""}
-          <small>${escapeHTML(record.date)}</small>
-          ${record.note
-            ? `<p>${escapeHTML(record.note)}</p>`
-            : ""}
+  renderHomeSchedule();
+  renderHomeTasks();
+  renderHomeCountdown();
+}
+
+function renderHomeSchedule() {
+  const container = $("#home-schedule-list");
+  if (!container) return;
+
+  const events = Calendar.getEventsByDate(dateKey());
+
+  container.innerHTML = events.length
+    ? events.map(event => `
+        <div class="home-list-item">
+          <strong>${escapeHTML(event.title)}</strong>
+          <span>${escapeHTML(event.startTime || "終日")}</span>
         </div>
-
-        <strong>${formatMinutes(record.minutes)}</strong>
-
-        <button
-          type="button"
-          data-action="delete-record"
-          data-id="${escapeHTML(record.id)}"
-        >削除</button>
-      </article>
-    `).join("") || "<p>まだ学習記録がありません。</p>";
-  }
-
-  function renderStudy() {
-    renderSubjects();
-    renderStudyRecords();
-    updateTimerDisplay();
-    updateTimerButtons();
-
-    const dateField = $("#manual-study-date");
-
-    if (dateField && !dateField.value) {
-      dateField.value = todayKey();
-    }
-  }
-
-  async function addSubject() {
-    const result = await dialog("科目を追加", `
-      <label>
-        科目名
-        <input
-          name="name"
-          required
-          maxlength="60"
-          placeholder="例：情報"
-        >
-      </label>
-    `);
-
-    if (!result?.name) return;
-
-    if (data.subjects.some(subject => subject.name === result.name)) {
-      showMessage("その科目はすでに登録されています。");
-      return;
-    }
-
-    data.subjects.push({
-      id: uid("subject"),
-      name: result.name,
-      color: colorForIndex(data.subjects.length)
-    });
-
-    saveData();
-    renderStudy();
-    showMessage("科目を追加しました。");
-  }
-
-  async function addStudyItem() {
-    const result = await dialog("学習項目を追加", `
-      <label>
-        科目
-        <select name="subject" required>
-          <option value="">科目を選択</option>
-          ${data.subjects.map(subject => `
-            <option value="${escapeHTML(subject.name)}">
-              ${escapeHTML(subject.name)}
-            </option>
-          `).join("")}
-        </select>
-      </label>
-
-      <label>
-        学習項目
-        <input
-          name="name"
-          required
-          maxlength="120"
-          placeholder="例：英単語"
-        >
-      </label>
-    `);
-
-    if (!result?.subject || !result?.name) return;
-
-    if (!data.studyItems.some(entry =>
-      entry.subject === result.subject &&
-      entry.name === result.name
-    )) {
-      data.studyItems.push({
-        id: uid("study-item"),
-        subject: result.subject,
-        name: result.name
-      });
-    }
-
-    saveData();
-    renderStudy();
-    showMessage("学習項目を追加しました。");
-  }
-
-  /* =======================================================
-     学習タイマー
-     ======================================================= */
-
-  function elapsedMilliseconds() {
-    return timerAccumulated +
-      (timerRunning ? Date.now() - timerStartedAt : 0);
-  }
-
-  function startTimer() {
-    if (timerRunning) return;
-
-    timerRunning = true;
-    timerStartedAt = Date.now();
-
-    clearInterval(timerInterval);
-    timerInterval = setInterval(updateTimerDisplay, 250);
-
-    setText("#study-timer-status", "学習中");
-    updateTimerButtons();
-    updateTimerDisplay();
-  }
-
-  function pauseTimer() {
-    if (!timerRunning) return;
-
-    timerAccumulated += Date.now() - timerStartedAt;
-    timerRunning = false;
-
-    clearInterval(timerInterval);
-    timerInterval = null;
-
-    setText("#study-timer-status", "一時停止中");
-    updateTimerButtons();
-    updateTimerDisplay();
-  }
-
-  function resetTimer() {
-    clearInterval(timerInterval);
-
-    timerInterval = null;
-    timerStartedAt = 0;
-    timerAccumulated = 0;
-    timerRunning = false;
-
-    updateTimerDisplay();
-    updateTimerButtons();
-    setText("#study-timer-status", "待機中");
-  }
-
-  function updateTimerDisplay() {
-    setText(
-      "#study-timer-display",
-      formatClock(elapsedMilliseconds() / 1000)
-    );
-
-    updateTimerButtons();
-  }
-
-  function updateTimerButtons() {
-    const start = $('[data-action="timer-start"]');
-    const pause = $('[data-action="timer-pause"]');
-    const finish = $('[data-action="timer-finish"]');
-
-    if (start) start.disabled = timerRunning;
-    if (pause) pause.disabled = !timerRunning;
-    if (finish) finish.disabled = elapsedMilliseconds() < 1000;
-  }
-
-  async function finishTimer() {
-    if (timerRunning) pauseTimer();
-
-    const minutes = Math.floor(elapsedMilliseconds() / 60000);
-
-    if (minutes < 1) {
-      showMessage("1分以上計測してから記録してください。");
-      return;
-    }
-
-    const result = await dialog("学習を記録", `
-      <label>
-        科目
-        <select name="subject" required>
-          <option value="">科目を選択</option>
-          ${data.subjects.map(subject => `
-            <option value="${escapeHTML(subject.name)}">
-              ${escapeHTML(subject.name)}
-            </option>
-          `).join("")}
-        </select>
-      </label>
-
-      <label>
-        学習した内容
-        <input name="item" maxlength="120" placeholder="例：二次関数">
-      </label>
-
-      <label>
-        記録時間（分）
-        <input
-          name="minutes"
-          type="number"
-          min="1"
-          max="${minutes}"
-          value="${minutes}"
-          required
-        >
-      </label>
-
-      <label>
-        メモ
-        <textarea name="note" maxlength="500"></textarea>
-      </label>
-
-      <p>計測時間：${formatMinutes(minutes)}</p>
-    `, "記録する");
-
-    if (!result) return;
-
-    const success = addStudyRecord({
-      subject: result.subject,
-      item: result.item,
-      minutes: result.minutes,
-      note: result.note,
-      date: todayKey()
-    });
-
-    if (success) {
-      resetTimer();
-    }
-  }
-
-  /* =======================================================
-     ホーム
-     ======================================================= */
-
-  function renderHome() {
-    const minutes = totalForDate(todayKey());
-    const goal = Math.max(1, Number(data.settings.dailyGoal) || 120);
-    const percent = Math.min(100, Math.round(minutes / goal * 100));
-
-    setText("#home-today-time", formatMinutes(minutes));
-    setText("#home-goal-percent", `${percent}%`);
-
-    setText(
-      "#home-goal-message",
-      minutes >= goal
-        ? "今日の目標達成！"
-        : `目標まであと ${formatMinutes(goal - minutes)}`
-    );
-
-    setWidth("#home-goal-progress", percent);
-
-    const rocketData = safeCall(rocket, "getRocket");
-    const rocketName = rocketData?.name || data.rocket.name || "COSMOS";
-    const rocketLevel = rocketData?.level || data.rocket.level || 1;
-    const rocketExp = rocketData?.exp ?? data.rocket.exp ?? 0;
-
-    setText("#home-rocket-level", `LEVEL ${rocketLevel}`);
-    setText("#home-rocket-exp", `EXP ${rocketExp}`);
-    setWidth("#home-rocket-progress", rocketExp % 100);
-
-    setText(
-      "#home-next-mission",
-      data.studyItems[0]
-        ? `${data.studyItems[0].subject}：${data.studyItems[0].name}`
-        : "学習項目を登録しよう"
-    );
-
-    renderHomeSchedule();
-    renderHomeCountdown();
-  }
-
-  function renderHomeSchedule() {
-    const list = $("#home-schedule-list");
-    if (!list) return;
-
-    const events = data.events
-      .filter(event => event.date === todayKey())
-      .sort((a, b) => (a.time || "").localeCompare(b.time || ""));
-
-    const rows = [
-      ...events.map(event => ({
-        time: event.time || "",
-        title: event.title,
-        type: "予定"
-      })),
-
-      ...recordsForDate(todayKey()).map(record => ({
-        time: "",
-        title: `${record.subject}${record.item ? `：${record.item}` : ""}（${formatMinutes(record.minutes)}）`,
-        type: "学習"
-      }))
-    ].sort((a, b) => a.time.localeCompare(b.time));
-
-    list.innerHTML = rows.map(row => `
-      <article class="schedule-row">
-        <span>${escapeHTML(row.time || "—")}</span>
-        <span class="schedule-type">${row.type}</span>
-        <span>${escapeHTML(row.title)}</span>
-      </article>
-    `).join("") || "<p>今日の予定・実績はありません。</p>";
-  }
-
-  function renderHomeCountdown() {
-    const list = $("#home-countdown-list");
-    if (!list) return;
-
-    const today = parseDate(todayKey());
-
-    list.innerHTML = [...data.countdowns]
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .slice(0, 3)
-      .map(item => {
-        const days = Math.round(
-          (parseDate(item.date) - today) / 86400000
-        );
-
-        return `
-          <article class="countdown-row">
-            <strong>${escapeHTML(item.title)}</strong>
-            <span>${days < 0
-              ? `${Math.abs(days)}日超過`
-              : `あと ${days} 日`}</span>
-          </article>
-        `;
-      }).join("") || "<p>カウントダウンはありません。</p>";
-  }
-
-  /* =======================================================
-     カレンダー
-     ======================================================= */
-
-  function renderCalendar() {
-    setText(
-      "#calendar-month-label",
-      `${calendarMonth.getFullYear()}年${calendarMonth.getMonth() + 1}月`
-    );
-
-    setText("#calendar-selected-date-label", selectedDate);
-
-    const grid = $("#calendar-grid");
-
-    if (grid) {
-      const year = calendarMonth.getFullYear();
-      const month = calendarMonth.getMonth();
-      const firstDay = new Date(year, month, 1).getDay();
-      const daysInMonth = new Date(year, month + 1, 0).getDate();
-      const headers = ["日", "月", "火", "水", "木", "金", "土"];
-
-      let html = headers.map(day =>
-        `<div class="calendar-weekday">${day}</div>`
-      ).join("");
-
-      for (let i = 0; i < firstDay; i++) {
-        html += '<div class="calendar-empty"></div>';
-      }
-
-      for (let day = 1; day <= daysInMonth; day++) {
-        const key = dateKey(new Date(year, month, day));
-        const hasEvent = data.events.some(event => event.date === key);
-        const hasStudy = data.studyRecords.some(record => record.date === key);
-
-        html += `
-          <button
-            type="button"
-            class="calendar-day${key === selectedDate ? " selected" : ""}${key === todayKey() ? " today" : ""}"
-            data-calendar-date="${key}"
-          >
-            <span>${day}</span>
-            ${hasEvent ? '<i class="calendar-dot event-dot"></i>' : ""}
-            ${hasStudy ? '<i class="calendar-dot study-dot"></i>' : ""}
-          </button>
-        `;
-      }
-
-      grid.innerHTML = html;
-    }
-
-    renderSelectedDay();
-    renderTimetable();
-    renderTasks();
-  }
-
-  function renderSelectedDay() {
-    const list = $("#calendar-event-list");
-    if (!list) return;
-
-    const events = data.events
-      .filter(event => event.date === selectedDate)
-      .sort((a, b) => (a.time || "").localeCompare(b.time || ""));
-
-    const records = recordsForDate(selectedDate);
-
-    const entries = [
-      ...events.map(event => ({
-        id: event.id,
-        type: "予定",
-        time: event.time || "",
-        title: event.title,
-        detail: event.note || ""
-      })),
-
-      ...records.map(record => ({
-        id: record.id,
-        type: "学習",
-        time: "",
-        title: `${record.subject}${record.item ? `：${record.item}` : ""}`,
-        detail: formatMinutes(record.minutes)
-      }))
-    ].sort((a, b) => a.time.localeCompare(b.time));
-
-    list.innerHTML = entries.map(entry => `
-      <article class="day-entry">
-        <span class="entry-type">${entry.type}</span>
-        <strong>${escapeHTML(entry.title)}</strong>
-        <span>${escapeHTML(entry.time || entry.detail)}</span>
-
-        ${entry.type === "予定"
-          ? `<button type="button" data-action="delete-event" data-id="${escapeHTML(entry.id)}">削除</button>`
-          : ""}
-      </article>
-    `).join("") || "<p>この日の予定・実績はありません。</p>";
-  }
-
-  async function addEvent() {
-    const result = await dialog("予定を追加", `
-      <label>
-        予定名
-        <input name="title" required maxlength="120">
-      </label>
-
-      <label>
-        日付
-        <input name="date" type="date" required value="${selectedDate}">
-      </label>
-
-      <label>
-        開始時刻
-        <input name="time" type="time">
-      </label>
-
-      <label>
-        メモ
-        <textarea name="note" maxlength="500"></textarea>
-      </label>
-    `);
-
-    if (!result?.title || !result?.date) return;
-
-    const event = {
-      id: uid("event"),
-      title: result.title,
-      date: result.date,
-      time: result.time || "",
-      note: result.note || ""
-    };
-
-    data.events.push(event);
-
-    safeCall(calendar, "addEvent", event);
-
-    selectedDate = result.date;
-    calendarMonth = parseDate(result.date);
-
-    saveData();
-    renderAll();
-    showMessage("予定を追加しました。");
-  }
-
-  function renderTimetable() {
-    const body = $("#timetable-body");
-    if (!body) return;
-
-    const days = ["月", "火", "水", "木", "金", "土", "日"];
-    const hours = Array.from(
-      { length: 20 },
-      (_, index) => (index + 6) % 24
-    );
-
-    body.innerHTML = hours.map(hour => `
-      <tr>
-        <th>${String(hour).padStart(2, "0")}:00</th>
-
-        ${days.map((day, index) => {
-          const entries = data.timetable.filter(item =>
-            Number(item.day) === index &&
-            Number(item.hour) === hour
-          );
-
-          return `
-            <td>
-              ${entries.map(item => `
-                <div class="timetable-entry">
-                  ${escapeHTML(item.title)}
-                </div>
-              `).join("")}
-            </td>
-          `;
-        }).join("")}
-      </tr>
-    `).join("");
-  }
-
-  async function editTimetable() {
-    const result = await dialog("時間割に追加", `
-      <label>
-        曜日
-        <select name="day">
-          <option value="0">月曜日</option>
-          <option value="1">火曜日</option>
-          <option value="2">水曜日</option>
-          <option value="3">木曜日</option>
-          <option value="4">金曜日</option>
-          <option value="5">土曜日</option>
-          <option value="6">日曜日</option>
-        </select>
-      </label>
-
-      <label>
-        時刻
-        <select name="hour">
-          ${Array.from({ length: 20 }, (_, index) => {
-            const hour = (index + 6) % 24;
-
-            return `
-              <option value="${hour}">
-                ${String(hour).padStart(2, "0")}:00
-              </option>
-            `;
-          }).join("")}
-        </select>
-      </label>
-
-      <label>
-        授業・予定名
-        <input name="title" required maxlength="100">
-      </label>
-    `);
-
-    if (!result?.title) return;
-
-    data.timetable.push({
-      id: uid("timetable"),
-      day: Number(result.day),
-      hour: Number(result.hour),
-      title: result.title
-    });
-
-    saveData();
-    renderTimetable();
-    showMessage("時間割を保存しました。");
-  }
-
-  async function addTask() {
-    const result = await dialog("タスクを追加", `
-      <label>
-        タスク名
-        <input name="title" required maxlength="120">
-      </label>
-
-      <label>
-        期限
-        <input name="date" type="date" value="${todayKey()}">
-      </label>
-    `);
-
-    if (!result?.title) return;
-
-    data.tasks.push({
-      id: uid("task"),
-      title: result.title,
-      date: result.date || todayKey(),
-      done: false
-    });
-
-    saveData();
-    renderTasks();
-    renderHome();
-    showMessage("タスクを追加しました。");
-  }
-
-  function renderTasks() {
-    const list = $("#task-list");
-    if (!list) return;
-
-    list.innerHTML = data.tasks.map(task => `
-      <article class="task-row${task.done ? " completed" : ""}">
-        <label>
-          <input
-            type="checkbox"
-            data-task-done="${escapeHTML(task.id)}"
-            ${task.done ? "checked" : ""}
-          >
-          <span>${escapeHTML(task.title)}</span>
-        </label>
-
-        <small>${escapeHTML(task.date || "")}</small>
-
-        <button
-          type="button"
-          data-action="delete-task"
-          data-id="${escapeHTML(task.id)}"
-        >削除</button>
-      </article>
-    `).join("") || "<p>タスクはありません。</p>";
-  }
-
-  /* =======================================================
-     統計・グラフ
-     ======================================================= */
-
-  function renderStatistics() {
-    const today = totalForDate(todayKey());
-    const goal = Number(data.settings.dailyGoal) || 120;
-    const percent = Math.min(
-      100,
-      Math.round(today / Math.max(1, goal) * 100)
-    );
-
-    setText("#stats-today-time", formatMinutes(today));
-    setText("#stats-today-goal", `目標 ${formatMinutes(goal)}`);
-    setWidth("#stats-today-progress", percent);
-
-    safeCall(statistics, "getDashboard");
-
-    drawSubjectChart();
-    drawBarChart("#daily-bar-chart", 7);
-    drawBarChart("#weekly-bar-chart", 7, true);
-    drawBarChart("#monthly-bar-chart", 30);
-  }
-
-  function drawSubjectChart() {
-    const canvas = $("#subject-doughnut-chart");
-    const legend = $("#subject-chart-legend");
-
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const ratio = window.devicePixelRatio || 1;
-    const width = Math.max(1, rect.width);
-    const height = Math.max(1, rect.height);
-
-    canvas.width = width * ratio;
-    canvas.height = height * ratio;
-
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const radius = Math.min(width, height) * 0.38;
-    const innerRadius = radius * 0.58;
-
-    const values = data.subjects.map(subject => ({
-      ...subject,
-      minutes: totalMinutes(
-        data.studyRecords.filter(
-          record => record.subject === subject.name
-        )
-      )
-    })).filter(subject => subject.minutes > 0);
-
-    const total = values.reduce(
-      (sum, item) => sum + item.minutes,
-      0
-    );
-
-    ctx.clearRect(0, 0, width, height);
-
-    if (!total) {
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-      ctx.strokeStyle = "#24324f";
-      ctx.lineWidth = radius - innerRadius;
-      ctx.stroke();
-    } else {
-      let angle = -Math.PI / 2;
-
-      values.forEach(item => {
-        const next = angle + item.minutes / total * Math.PI * 2;
-
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, radius, angle, next);
-        ctx.strokeStyle = item.color || "#69a7ff";
-        ctx.lineWidth = radius - innerRadius;
-        ctx.stroke();
-
-        angle = next;
-      });
-    }
-
-    ctx.fillStyle = "#f2f5ff";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.font = "bold 14px sans-serif";
-    ctx.fillText(formatMinutes(total), centerX, centerY);
-
-    if (legend) {
-      legend.innerHTML = values.map(item => `
-        <div class="chart-legend-item">
-          <span style="background:${escapeHTML(item.color)}"></span>
-          ${escapeHTML(item.name)}：${formatMinutes(item.minutes)}
+      `).join("")
+    : `<p class="empty-state">今日の予定はありません</p>`;
+}
+
+function renderHomeTasks() {
+  const container = $("#home-task-list");
+  if (!container) return;
+
+  const tasks = Calendar.getTodayTasks();
+
+  container.innerHTML = tasks.length
+    ? tasks.map(task => `
+        <div class="home-list-item">
+          ${escapeHTML(task.title)}
         </div>
-      `).join("") ||
-        "<p>学習記録を追加するとグラフが表示されます。</p>";
-    }
-  }
+      `).join("")
+    : `<p class="empty-state">今日のタスクはありません</p>`;
+}
 
-  function drawBarChart(selector, count, weekly = false) {
-    const canvas = $(selector);
-    if (!canvas) return;
+function renderHomeCountdown() {
+  const container = $("#home-countdown-list");
+  if (!container) return;
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+  const events = Countdown.getUpcomingCountdownEvents({
+    limit: 3
+  });
 
-    const rect = canvas.getBoundingClientRect();
-    const ratio = window.devicePixelRatio || 1;
-    const width = Math.max(1, rect.width);
-    const height = Math.max(1, rect.height);
-
-    canvas.width = width * ratio;
-    canvas.height = height * ratio;
-
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-
-    const padding = 24;
-    const today = parseDate(todayKey());
-    const values = [];
-
-    for (let index = count - 1; index >= 0; index--) {
-      const date = new Date(today);
-
-      date.setDate(today.getDate() - index);
-
-      values.push({
-        date,
-        value: totalForDate(dateKey(date))
-      });
-    }
-
-    const max = Math.max(60, ...values.map(item => item.value));
-    const chartHeight = height - padding * 2;
-    const chartWidth = width - padding * 2;
-    const slot = chartWidth / values.length;
-    const barWidth = Math.max(3, slot * 0.56);
-
-    ctx.clearRect(0, 0, width, height);
-    ctx.strokeStyle = "rgba(170,193,255,.15)";
-    ctx.lineWidth = 1;
-
-    for (let index = 0; index < 4; index++) {
-      const y = padding + chartHeight * index / 3;
-
-      ctx.beginPath();
-      ctx.moveTo(padding, y);
-      ctx.lineTo(width - padding, y);
-      ctx.stroke();
-    }
-
-    values.forEach((item, index) => {
-      const barHeight = item.value / max * chartHeight;
-      const x = padding + slot * index + (slot - barWidth) / 2;
-      const y = height - padding - barHeight;
-
-      ctx.fillStyle = "#69a7ff";
-      ctx.beginPath();
-
-      if (typeof ctx.roundRect === "function") {
-        ctx.roundRect(x, y, barWidth, Math.max(2, barHeight), 4);
-      } else {
-        ctx.rect(x, y, barWidth, Math.max(2, barHeight));
-      }
-
-      ctx.fill();
-
-      ctx.fillStyle = "#aab7d2";
-      ctx.font = "10px sans-serif";
-      ctx.textAlign = "center";
-
-      ctx.fillText(
-        `${item.date.getMonth() + 1}/${item.date.getDate()}`,
-        x + barWidth / 2,
-        height - 7
-      );
-    });
-  }
-
-  /* =======================================================
-     目標マップ・習慣
-     ======================================================= */
-
-  function renderGoals() {
-    const list = $("#goal-list");
-    if (!list) return;
-
-    const completed = data.goals.filter(goal => goal.done).length;
-
-    setText(
-      "#goal-map-completion",
-      `${data.goals.length
-        ? Math.round(completed / data.goals.length * 100)
-        : 0}%`
-    );
-
-    setWidth(
-      "#goal-map-progress",
-      data.goals.length
-        ? completed / data.goals.length * 100
-        : 0
-    );
-
-    list.innerHTML = data.goals.map(goal => `
-      <article class="goal-card${goal.done ? " completed" : ""}">
-        <label>
-          <input
-            type="checkbox"
-            data-goal-done="${escapeHTML(goal.id)}"
-            ${goal.done ? "checked" : ""}
-          >
-          <strong>${escapeHTML(goal.title)}</strong>
-        </label>
-
-        ${goal.date ? `<small>${escapeHTML(goal.date)}</small>` : ""}
-
-        <button
-          type="button"
-          data-action="delete-goal"
-          data-id="${escapeHTML(goal.id)}"
-        >削除</button>
-      </article>
-    `).join("") ||
-      "<p>目標を登録して、達成への道筋を作りましょう。</p>";
-
-    renderGoalTree();
-    renderHabits();
-  }
-
-  function renderGoalTree() {
-    const canvas = $("#goal-map-canvas");
-    if (!canvas) return;
-
-    /*
-     * HTML側の要素は div なので、canvas がない場合でも
-     * 目標を表示できるようにする。
-     */
-    if (canvas.tagName.toLowerCase() !== "canvas") {
-      const nodes = data.goalNodes.length
-        ? data.goalNodes
-        : [{
-            id: "root",
-            title: "月を目指す",
-            parentId: null,
-            done: false
-          }];
-
-      canvas.innerHTML = `
-        <div class="goal-tree-list">
-          ${nodes.map(node => `
-            <article class="goal-tree-node${node.done ? " completed" : ""}">
-              <strong>${escapeHTML(node.title)}</strong>
-              ${node.parentId
-                ? `<small>接続先：${escapeHTML(
-                    nodes.find(item => item.id === node.parentId)?.title || "未設定"
-                  )}</small>`
-                : ""}
-            </article>
-          `).join("")}
+  container.innerHTML = events.length
+    ? events.map(event => `
+        <div class="home-list-item">
+          <strong>${escapeHTML(event.title)}</strong>
+          <span>${escapeHTML(
+            Countdown.formatRemainingDays(event.remainingDays)
+          )}</span>
         </div>
-      `;
+      `).join("")
+    : `<p class="empty-state">カウントダウンはありません</p>`;
+}
 
-      return;
-    }
+/* =========================================================
+   勉強
+   ========================================================= */
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+function renderStudy() {
+  renderSubjectOptions();
+  renderStudySubjects();
+  renderStudyRecords();
+  updateTimerDisplay();
+}
 
-    const rect = canvas.getBoundingClientRect();
-    const ratio = window.devicePixelRatio || 1;
-    const width = Math.max(rect.width, 280);
+function renderSubjectOptions() {
+  const subjects = Study.getAllSubjects();
 
-    const nodes = data.goalNodes.length
-      ? data.goalNodes
-      : [{
-          id: "root",
-          title: "月を目指す",
-          parentId: null,
-          done: false
-        }];
+  [
+    "#study-timer-subject",
+    '#manual-study-form [name="subjectId"]'
+  ].forEach(selector => {
+    const select = $(selector);
+    if (!select) return;
 
-    const height = Math.max(
-      400,
-      Math.ceil(nodes.length / 3) * 110 + 100
-    );
+    const previous = select.value;
 
-    canvas.width = width * ratio;
-    canvas.height = height * ratio;
-    canvas.style.height = `${height}px`;
-
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    ctx.clearRect(0, 0, width, height);
-
-    const positions = new Map();
-
-    nodes.forEach((node, index) => {
-      positions.set(node.id, {
-        x: width / 2 + ((index % 3) - 1) * Math.min(90, width * 0.24),
-        y: 55 + Math.floor(index / 3) * 100
-      });
-    });
-
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "rgba(105,167,255,.6)";
-
-    nodes.forEach(node => {
-      if (!node.parentId || !positions.has(node.parentId)) return;
-
-      const from = positions.get(node.parentId);
-      const to = positions.get(node.id);
-
-      ctx.beginPath();
-      ctx.moveTo(from.x, from.y + 22);
-      ctx.lineTo(to.x, to.y - 22);
-      ctx.stroke();
-    });
-
-    nodes.forEach(node => {
-      const point = positions.get(node.id);
-      if (!point) return;
-
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, node.id === "root" ? 27 : 22, 0, Math.PI * 2);
-
-      ctx.fillStyle = node.done
-        ? "#246e69"
-        : node.id === "root"
-          ? "#594b9c"
-          : "#172c4d";
-
-      ctx.fill();
-
-      ctx.strokeStyle = node.done ? "#76e3b0" : "#69a7ff";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      ctx.fillStyle = "#f2f5ff";
-      ctx.textAlign = "center";
-      ctx.font = "11px sans-serif";
-
-      ctx.fillText(
-        String(node.title || "").slice(0, 12),
-        point.x,
-        point.y + 38
-      );
-    });
-  }
-
-  async function addGoal() {
-    const result = await dialog("目標を追加", `
-      <label>
-        目標
-        <input name="title" required maxlength="120">
-      </label>
-
-      <label>
-        期限
-        <input name="date" type="date">
-      </label>
-    `);
-
-    if (!result?.title) return;
-
-    const goal = {
-      id: uid("goal"),
-      title: result.title,
-      date: result.date || "",
-      done: false
-    };
-
-    data.goals.push(goal);
-    safeCall(goals, "addGoal", goal);
-
-    saveData();
-    renderGoals();
-    showMessage("目標を追加しました。");
-  }
-
-  async function addGoalNode() {
-    const options = data.goalNodes.map(node => `
-      <option value="${escapeHTML(node.id)}">
-        ${escapeHTML(node.title)}
+    select.innerHTML = subjects.map(subject => `
+      <option value="${escapeHTML(subject.id)}">
+        ${escapeHTML(subject.name)}
       </option>
     `).join("");
 
-    const result = await dialog("目標マップに追加", `
-      <label>
-        目標名
-        <input name="title" required maxlength="80">
-      </label>
+    select.value = previous;
+  });
+}
 
-      <label>
-        接続先
-        <select name="parentId">
-          <option value="">月への最初の目標</option>
-          ${options}
-        </select>
-      </label>
-    `);
+function renderStudySubjects() {
+  const container = $("#study-subject-list");
+  if (!container) return;
 
-    if (!result?.title) return;
+  container.innerHTML = Study.getAllSubjects().map(subject => `
+    <div class="subject-item">
+      <span>${escapeHTML(subject.name)}</span>
+    </div>
+  `).join("");
+}
 
-    data.goalNodes.push({
-      id: uid("node"),
-      title: result.title,
-      parentId: result.parentId || null,
-      done: false
+function renderStudyRecords() {
+  const container = $("#study-record-list");
+  if (!container) return;
+
+  const records = Study.getRecentStudyRecords(30);
+
+  container.innerHTML = records.map(record => `
+    <div class="study-record">
+      <strong>${escapeHTML(record.date)}</strong>
+      <span>${escapeHTML(
+        Study.formatStudyMinutes(record.minutes)
+      )}</span>
+      <p>${escapeHTML(record.note || "")}</p>
+    </div>
+  `).join("");
+}
+
+function bindStudyActions() {
+  $("#timer-start")?.addEventListener("click", () => {
+    safeCall(() => {
+      const subjectId = $("#study-timer-subject")?.value;
+      const itemId = $("#study-timer-item")?.value || null;
+
+      Study.startStudyTimer(subjectId, itemId);
+      updateTimerDisplay();
+      showMessage("学習タイマーを開始しました。");
     });
+  });
 
-    saveData();
-    renderGoals();
-    showMessage("目標を追加しました。");
-  }
-
-  async function addHabit() {
-    const result = await dialog("習慣を追加", `
-      <label>
-        習慣名
-        <input name="title" required maxlength="100">
-      </label>
-    `);
-
-    if (!result?.title) return;
-
-    data.habits.push({
-      id: uid("habit"),
-      title: result.title,
-      dates: []
+  $("#timer-pause")?.addEventListener("click", () => {
+    safeCall(() => {
+      Study.pauseStudyTimer();
+      updateTimerDisplay();
     });
+  });
 
-    saveData();
-    renderHabits();
-    showMessage("習慣を追加しました。");
-  }
+  $("#timer-finish")?.addEventListener("click", () => {
+    safeCall(() => {
+      Study.finishStudyTimer();
+      renderStudy();
+      showMessage("学習時間を保存しました。");
+    });
+  });
 
-  function renderHabits() {
-    const list = $("#habit-list");
-    if (!list) return;
+  $("#manual-study-form")?.addEventListener("submit", event => {
+    event.preventDefault();
 
-    list.innerHTML = data.habits.map(habit => {
-      const dates = Array.isArray(habit.dates) ? habit.dates : [];
-      const doneToday = dates.includes(todayKey());
+    safeCall(() => {
+      const form = event.currentTarget;
 
-      return `
-        <article class="habit-row">
-          <label>
-            <input
-              type="checkbox"
-              data-habit="${escapeHTML(habit.id)}"
-              ${doneToday ? "checked" : ""}
-            >
-            ${escapeHTML(habit.title)}
-          </label>
-
-          <small>達成 ${dates.length}日</small>
-        </article>
-      `;
-    }).join("") || "<p>習慣を登録しましょう。</p>";
-  }
-
-  /* =======================================================
-     ロケット
-     ======================================================= */
-
-  function renderRocket() {
-    const moduleRocket = safeCall(rocket, "getRocket") || {};
-
-    const name = moduleRocket.name || data.rocket.name || "COSMOS";
-    const level = Number(moduleRocket.level || data.rocket.level || 1);
-    const exp = Number(moduleRocket.exp ?? data.rocket.exp ?? 0);
-
-    setText("#rocket-name", name);
-    setText("#rocket-level", `LEVEL ${level}`);
-    setText("#rocket-exp-label", `${exp}/100 EXP`);
-    setWidth("#rocket-exp-progress", exp);
-
-    const missionList = $("#mission-list");
-
-    if (missionList) {
-      missionList.innerHTML = (data.rocket.missions || []).map(item => `
-        <article>${escapeHTML(item.title)}</article>
-      `).join("") || "<p>ミッションは今後追加できます。</p>";
-    }
-
-    const partsList = $("#rocket-parts-list");
-
-    if (partsList) {
-      partsList.innerHTML = (data.rocket.parts || []).map(item => `
-        <article>${escapeHTML(item.title)}</article>
-      `).join("") || "<p>パーツはまだありません。</p>";
-    }
-
-    const explorationList = $("#space-exploration-list");
-
-    if (explorationList) {
-      explorationList.innerHTML =
-        (data.rocket.explorations || []).map(item => `
-          <article>${escapeHTML(item.title)}</article>
-        `).join("") ||
-        "<p>学習を積み重ねて宇宙を目指しましょう。</p>";
-    }
-  }
-
-  /* =======================================================
-     経済
-     ======================================================= */
-
-  function renderEconomy() {
-    const moduleSummary = safeCall(economy, "getSummary");
-
-    const balance = Number(
-      moduleSummary?.balance ?? data.economy.balance ?? 0
-    );
-
-    setText("#economy-balance", `${balance.toLocaleString()} COSMO`);
-    setText("#economy-net-worth", `${balance.toLocaleString()} COSMO`);
-
-    const loans = $("#economy-loan-list");
-
-    if (loans) {
-      loans.innerHTML = (data.economy.loans || []).map(loan => `
-        <article>
-          <strong>${escapeHTML(loan.title || "借入")}</strong>
-          <span>${Number(loan.amount || 0).toLocaleString()} COSMO</span>
-        </article>
-      `).join("") || "<p>借入はありません。</p>";
-    }
-
-    const transactions = $("#economy-transaction-list");
-
-    if (transactions) {
-      transactions.innerHTML = [...(data.economy.transactions || [])]
-        .reverse()
-        .slice(0, 50)
-        .map(item => `
-          <article>
-            <span>${escapeHTML(item.date || "")}</span>
-            <span>${escapeHTML(item.title || "")}</span>
-            <strong>
-              ${Number(item.amount) >= 0 ? "+" : ""}
-              ${Number(item.amount || 0).toLocaleString()}
-            </strong>
-          </article>
-        `).join("") || "<p>取引履歴はありません。</p>";
-    }
-  }
-
-  async function economyTransaction(type) {
-    const labels = {
-      deposit: "入金",
-      withdraw: "出金",
-      borrow: "借入"
-    };
-
-    const result = await dialog(`${labels[type]}する`, `
-      <label>
-        金額
-        <input name="amount" type="number" min="1" step="1" required>
-      </label>
-
-      <label>
-        内容
-        <input name="title" maxlength="100" placeholder="${labels[type]}">
-      </label>
-    `);
-
-    if (!result) return;
-
-    const amount = Math.floor(Number(result.amount));
-
-    if (!Number.isFinite(amount) || amount <= 0) {
-      showMessage("正しい金額を入力してください。");
-      return;
-    }
-
-    if (type === "withdraw" && amount > data.economy.balance) {
-      showMessage("残高が不足しています。");
-      return;
-    }
-
-    const methodMap = {
-      deposit: "deposit",
-      withdraw: "withdraw",
-      borrow: "borrow"
-    };
-
-    const moduleResult = safeCall(
-      economy,
-      methodMap[type],
-      amount,
-      result.title || labels[type]
-    );
-
-    if (moduleResult !== undefined) {
-      renderEconomy();
-      showMessage("経済処理を実行しました。");
-      return;
-    }
-
-    if (type === "deposit") {
-      data.economy.balance += amount;
-    }
-
-    if (type === "withdraw") {
-      data.economy.balance -= amount;
-    }
-
-    if (type === "borrow") {
-      data.economy.loans.push({
-        id: uid("loan"),
-        title: result.title || "借入",
-        amount,
-        date: todayKey()
+      Study.addStudyRecord({
+        subjectId: form.elements.subjectId.value,
+        itemId: form.elements.itemId?.value || null,
+        date: form.elements.date.value || dateKey(),
+        minutes: Number(form.elements.minutes.value),
+        note: form.elements.note.value,
+        source: "manual"
       });
 
-      data.economy.balance += amount;
-    }
-
-    data.economy.transactions.push({
-      id: uid("transaction"),
-      date: todayKey(),
-      title: result.title || labels[type],
-      amount: type === "withdraw" ? -amount : amount,
-      type
+      form.reset();
+      renderStudy();
+      showMessage("学習記録を追加しました。");
     });
+  });
+}
 
-    saveData();
-    renderEconomy();
-    showMessage("取引を保存しました。");
+function startTimerDisplay() {
+  if (state.timerInterval) {
+    clearInterval(state.timerInterval);
   }
 
-  /* =======================================================
-     カウントダウン
-     ======================================================= */
+  state.timerInterval = setInterval(updateTimerDisplay, 1000);
+}
 
-  async function addCountdown() {
-    const result = await dialog("カウントダウンを追加", `
-      <label>
-        イベント名
-        <input name="title" required maxlength="100">
-      </label>
+function updateTimerDisplay() {
+  const timer = Study.getTimerStatus();
+  const display = $("#study-timer-display");
 
-      <label>
-        日付
-        <input name="date" type="date" required>
-      </label>
-    `);
-
-    if (!result?.title || !result?.date) return;
-
-    const item = {
-      id: uid("countdown"),
-      title: result.title,
-      date: result.date
-    };
-
-    data.countdowns.push(item);
-
-    safeCall(countdown, "add", item);
-
-    saveData();
-    renderCountdown();
-    renderHomeCountdown();
-
-    showMessage("カウントダウンを追加しました。");
+  if (display) {
+    display.textContent = Study.formatTimer(timer.elapsedSeconds || 0);
   }
 
-  function renderCountdown() {
-    const list = $("#countdown-list");
-    if (!list) return;
+  const status = $("#study-timer-status");
 
-    const today = parseDate(todayKey());
+  if (status) {
+    status.textContent = timer.isRunning
+      ? "学習中"
+      : timer.isPaused
+        ? "一時停止中"
+        : "待機中";
+  }
+}
 
-    list.innerHTML = [...data.countdowns]
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map(item => {
-        const days = Math.round(
-          (parseDate(item.date) - today) / 86400000
-        );
+/* =========================================================
+   カレンダー
+   ========================================================= */
+
+function renderCalendar() {
+  const container = $("#calendar-grid");
+  if (!container) return;
+
+  const calendar = Calendar.getMonthCalendar(
+    state.calendarDate.getFullYear(),
+    state.calendarDate.getMonth()
+  );
+
+  const events = Calendar.getAllCalendarEvents();
+
+  container.innerHTML = calendar.map(week => `
+    <div class="calendar-week">
+      ${week.map(day => {
+        const key = dateKey(day.date || day);
+        const count = events.filter(event => event.date === key).length;
 
         return `
-          <article class="countdown-card">
-            <div>
-              <strong>${escapeHTML(item.title)}</strong>
-              <small>${escapeHTML(item.date)}</small>
-            </div>
-
-            <strong>
-              ${days < 0
-                ? `${Math.abs(days)}日超過`
-                : `あと${days}日`}
-            </strong>
-
-            <button
-              type="button"
-              data-action="delete-countdown"
-              data-id="${escapeHTML(item.id)}"
-            >削除</button>
-          </article>
+          <button class="calendar-day"
+            data-date="${key}">
+            <span>${new Date(key).getDate()}</span>
+            ${count ? `<small>${count}</small>` : ""}
+          </button>
         `;
-      }).join("") || "<p>イベントを追加してください。</p>";
-  }
+      }).join("")}
+    </div>
+  `).join("");
 
-  /* =======================================================
-     通知
-     ======================================================= */
-
-  function renderNotifications() {
-    const list = $("#notification-list");
-    if (!list) return;
-
-    list.innerHTML = data.notifications.map(item => `
-      <article>
-        <strong>${escapeHTML(item.title)}</strong>
-        <p>${escapeHTML(item.message || "")}</p>
-      </article>
-    `).join("") || "<p>通知はありません。</p>";
-  }
-
-  async function enableNotifications() {
-    if (!("Notification" in window)) {
-      showMessage("この環境では通知に対応していません。");
-      return;
-    }
-
-    try {
-      const permission = await Notification.requestPermission();
-
-      if (permission === "granted") {
-        new Notification("One for All COSMOS", {
-          body: "通知を有効にしました。"
-        });
-
-        showMessage("通知を有効にしました。");
-      } else {
-        showMessage("通知は許可されませんでした。");
-      }
-    } catch (error) {
-      console.error(error);
-      showMessage("通知を有効にできませんでした。");
-    }
-  }
-
-  /* =======================================================
-     設定・下部ショートカット
-     ======================================================= */
-
-  function renderSettings() {
-    let settings;
-
-    try {
-      settings = getSettings();
-    } catch (error) {
-      console.error("設定を取得できませんでした:", error);
-      settings = data.settings;
-    }
-
-    if (!settings || typeof settings !== "object") {
-      settings = data.settings;
-    }
-
-    setValue(
-      "#setting-daily-goal",
-      settings.dailyGoalMinutes ??
-        settings.dailyGoal ??
-        data.settings.dailyGoal
-    );
-
-    setValue(
-      "#setting-weekly-goal",
-      settings.weeklyGoalMinutes ??
-        settings.weeklyGoal ??
-        data.settings.weeklyGoal
-    );
-
-    setValue(
-      "#setting-minimum-action",
-      settings.minimumActionMinutes ??
-        settings.minimumAction ??
-        data.settings.minimumAction
-    );
-
-    setChecked(
-      "#setting-animations",
-      settings.animations ?? data.settings.animations
-    );
-
-    setValue(
-      "#setting-theme",
-      settings.theme || data.settings.theme
-    );
-
-    const shortcuts = Array.isArray(settings.shortcuts)
-      ? settings.shortcuts
-      : data.settings.shortcuts;
-
-    $$('input[name="bottomShortcut"]').forEach(input => {
-      input.checked = shortcuts.includes(input.value);
+  container.querySelectorAll("[data-date]").forEach(button => {
+    button.addEventListener("click", () => {
+      state.selectedDate = new Date(`${button.dataset.date}T00:00:00`);
+      renderSelectedDate();
     });
+  });
 
-    renderBottomNavigation();
-  }
+  setText(
+    "#calendar-period-label",
+    `${state.calendarDate.getFullYear()}年${state.calendarDate.getMonth() + 1}月`
+  );
 
-  function saveSettingsFromForm(event) {
-    event?.preventDefault();
+  renderSelectedDate();
+}
 
-    const dailyGoal = Math.max(
-      1,
-      Number($("#setting-daily-goal")?.value) || 120
-    );
+function renderSelectedDate() {
+  const key = dateKey(state.selectedDate);
 
-    const weeklyGoal = Math.max(
-      1,
-      Number($("#setting-weekly-goal")?.value) || 840
-    );
+  setText("#calendar-selected-date-label", key);
 
-    const minimumAction = Math.max(
-      1,
-      Number($("#setting-minimum-action")?.value) || 5
-    );
+  const container = $("#calendar-event-list");
+  if (!container) return;
 
-    const animations = $("#setting-animations")?.checked ?? true;
-    const theme = $("#setting-theme")?.value || "cosmos";
+  const events = Calendar.getEventsByDate(key);
 
-    const shortcuts = $$('input[name="bottomShortcut"]:checked')
-      .map(input => input.value);
+  container.innerHTML = events.map(event => `
+    <div class="calendar-event">
+      <strong>${escapeHTML(event.title)}</strong>
+      <span>${escapeHTML(event.startTime || "終日")}</span>
+      <p>${escapeHTML(event.description || "")}</p>
+    </div>
+  `).join("");
+}
 
-    data.settings = {
-      ...data.settings,
-      dailyGoal,
-      weeklyGoal,
-      minimumAction,
-      animations,
-      theme,
-      shortcuts
-    };
-
-    try {
-      saveSettings({
-        dailyGoalMinutes: dailyGoal,
-        weeklyGoalMinutes: weeklyGoal,
-        minimumActionMinutes: minimumAction,
-        animations,
-        theme,
-        shortcuts,
-        shareStudyRecords: false
-      });
-    } catch (error) {
-      console.error("設定モジュールへの保存に失敗しました:", error);
-    }
-
-    document.body.classList.toggle(
-      "animations-disabled",
-      !animations
-    );
-
-    document.documentElement.dataset.theme = theme;
-
-    saveData();
-    renderBottomNavigation();
-    renderHome();
-
-    showMessage("設定を保存しました。");
-  }
-
-  function renderBottomNavigation() {
-    const nav = $("#bottom-navigation");
-    if (!nav) return;
-
-    const shortcuts = Array.isArray(data.settings.shortcuts)
-      ? data.settings.shortcuts
-      : [];
-
-    $$("[data-shortcut]", nav).forEach(button => {
-      button.hidden = !shortcuts.includes(button.dataset.shortcut);
-    });
-
-    nav.hidden = shortcuts.length === 0;
-  }
-
-  /* =======================================================
-     全画面更新
-     ======================================================= */
-
-  function renderAll() {
-    renderHome();
-    renderStudy();
+function bindCalendarActions() {
+  $("#calendar-prev")?.addEventListener("click", () => {
+    state.calendarDate.setMonth(state.calendarDate.getMonth() - 1);
     renderCalendar();
-    renderStatistics();
-    renderGoals();
-    renderRocket();
-    renderEconomy();
-    renderCountdown();
-    renderNotifications();
-    renderSettings();
-    renderBottomNavigation();
-  }
+  });
 
-  /* =======================================================
-     ボタン操作
-     HTMLの data-action に合わせて処理する
-     ======================================================= */
+  $("#calendar-next")?.addEventListener("click", () => {
+    state.calendarDate.setMonth(state.calendarDate.getMonth() + 1);
+    renderCalendar();
+  });
 
-  function handleAction(button) {
-    const action = button.dataset.action;
-    const id = button.dataset.id;
+  $("#calendar-today")?.addEventListener("click", () => {
+    state.calendarDate = new Date();
+    state.selectedDate = new Date();
+    renderCalendar();
+  });
+}
 
-    switch (action) {
-      case "start-study":
-        showView("study");
-        startTimer();
-        break;
+/* =========================================================
+   統計
+   ========================================================= */
 
-      case "timer-start":
-        startTimer();
-        break;
+function renderStatistics() {
+  const dashboard = Statistics.getStatisticsDashboard();
 
-      case "timer-pause":
-        pauseTimer();
-        break;
+  setText(
+    "#remaining-study-time",
+    Study.formatStudyMinutes(
+      Math.max(
+        0,
+        (Settings.getDailyTarget?.() || 60) -
+        Study.getDailyStudyMinutes()
+      )
+    )
+  );
 
-      case "timer-finish":
-        finishTimer();
-        break;
+  setText(
+    "#statistics-total-time",
+    Study.formatStudyMinutes(dashboard.overall?.totalMinutes || 0)
+  );
+}
 
-      case "add-subject":
-        addSubject();
-        break;
+/* =========================================================
+   目標
+   ========================================================= */
 
-      case "add-study-item":
-        addStudyItem();
-        break;
+function renderGoals() {
+  const container = $("#goal-list");
+  if (!container) return;
 
-      case "add-event":
-        addEvent();
-        break;
+  const goals = Goals.getAllGoals();
 
-      case "calendar-prev":
-        calendarMonth = new Date(
-          calendarMonth.getFullYear(),
-          calendarMonth.getMonth() - 1,
-          1
-        );
-        renderCalendar();
-        break;
+  container.innerHTML = goals.map(goal => `
+    <div class="goal-item">
+      <strong>${escapeHTML(goal.title)}</strong>
+      <span>${Goals.getGoalProgress(goal.id)}%</span>
+    </div>
+  `).join("");
 
-      case "calendar-next":
-        calendarMonth = new Date(
-          calendarMonth.getFullYear(),
-          calendarMonth.getMonth() + 1,
-          1
-        );
-        renderCalendar();
-        break;
+  const summary = Goals.getGoalSummary();
 
-      case "edit-timetable":
-        editTimetable();
-        break;
+  setText("#goal-map-completion", `${summary.progress || 0}%`);
+}
 
-      case "add-task":
-        addTask();
-        break;
+function bindGoalActions() {
+  $("#add-goal")?.addEventListener("click", () => {
+    showMessage("目標追加画面は次のUI実装で接続します。");
+  });
+}
 
-      case "add-goal":
-        addGoal();
-        break;
+/* =========================================================
+   カウントダウン
+   ========================================================= */
 
-      case "add-goal-map-node":
-        addGoalNode();
-        break;
+function renderCountdown() {
+  const container = $("#countdown-list");
+  if (!container) return;
 
-      case "add-habit":
-        addHabit();
-        break;
+  const events = Countdown.getAllCountdownEvents();
 
-      case "add-countdown":
-        addCountdown();
-        break;
+  container.innerHTML = events.map(event => {
+    const display = Countdown.getCountdownDisplay(event);
 
-      case "enable-notifications":
-        enableNotifications();
-        break;
+    return `
+      <div class="countdown-item">
+        <strong>${escapeHTML(event.title)}</strong>
+        <span>${escapeHTML(display.remainingText)}</span>
+      </div>
+    `;
+  }).join("");
+}
 
-      case "economy-deposit":
-        economyTransaction("deposit");
-        break;
+function bindCountdownActions() {
+  $("#add-countdown")?.addEventListener("click", () => {
+    showMessage("追加フォームは次のUI実装で接続します。");
+  });
+}
 
-      case "economy-withdraw":
-        economyTransaction("withdraw");
-        break;
+/* =========================================================
+   経済
+   ========================================================= */
 
-      case "economy-borrow":
-        economyTransaction("borrow");
-        break;
+function renderEconomy() {
+  setText("#economy-balance", Economy.getBalance());
+}
 
-      case "delete-record":
-        if (confirm("この学習記録を削除しますか？")) {
-          data.studyRecords = data.studyRecords.filter(
-            record => record.id !== id
-          );
+/* =========================================================
+   ロケット
+   ========================================================= */
 
-          saveData();
-          renderAll();
-          showMessage("学習記録を削除しました。");
-        }
-        break;
+function renderRocket() {
+  const status = Rocket.getRocketStatus?.();
+  if (!status) return;
 
-      case "remove-subject": {
-        const subject = data.subjects.find(item => item.id === id);
+  setText("#rocket-level", status.level);
+  setText("#rocket-name", status.name || "ALGOL Explorer");
+  setText("#rocket-exp-label", status.experience);
+}
 
-        if (!subject) break;
+/* =========================================================
+   設定
+   ========================================================= */
 
-        if (!confirm(
-          `科目「${subject.name}」を削除しますか？過去の学習記録は残ります。`
-        )) {
-          break;
-        }
+function renderSettings() {
+  const settings = Settings.getSettings?.();
+  if (!settings) return;
 
-        data.subjects = data.subjects.filter(item => item.id !== id);
+  const daily = $('[name="dailyGoalMinutes"]');
+  const weekly = $('[name="weeklyGoalMinutes"]');
 
-        saveData();
-        renderStudy();
-        showMessage("科目を削除しました。");
-        break;
-      }
+  if (daily) daily.value = settings.dailyTarget ?? 60;
+  if (weekly) weekly.value = settings.weeklyTarget ?? 420;
+}
 
-      case "delete-event":
-        data.events = data.events.filter(item => item.id !== id);
-        safeCall(calendar, "deleteEvent", id);
-        saveData();
-        renderCalendar();
-        renderHome();
-        showMessage("予定を削除しました。");
-        break;
+function bindSettingsActions() {
+  $("#settings-study-form")?.addEventListener("submit", event => {
+    event.preventDefault();
 
-      case "delete-task":
-        data.tasks = data.tasks.filter(item => item.id !== id);
-        saveData();
-        renderTasks();
-        renderHome();
-        showMessage("タスクを削除しました。");
-        break;
+    safeCall(() => {
+      const form = event.currentTarget;
 
-      case "delete-goal":
-        data.goals = data.goals.filter(item => item.id !== id);
-        saveData();
-        renderGoals();
-        showMessage("目標を削除しました。");
-        break;
-
-      case "delete-countdown":
-        data.countdowns = data.countdowns.filter(item => item.id !== id);
-        saveData();
-        renderCountdown();
-        renderHomeCountdown();
-        showMessage("カウントダウンを削除しました。");
-        break;
-    }
-  }
-
-  /* =======================================================
-     イベント登録
-     ======================================================= */
-
-  function bindEvents() {
-    $("#menu-open")?.addEventListener("click", openMenu);
-    $("#menu-close")?.addEventListener("click", closeMenu);
-    $("#menu-backdrop")?.addEventListener("click", closeMenu);
-
-    document.addEventListener("keydown", event => {
-      if (event.key === "Escape") {
-        closeMenu();
-      }
-    });
-
-    /*
-     * data-view があるボタンは画面切り替えを優先。
-     * data-action の処理とは分離する。
-     */
-    document.addEventListener("click", event => {
-      const target = event.target;
-
-      if (!(target instanceof Element)) return;
-
-      const viewButton = target.closest("[data-view]");
-
-      if (viewButton) {
-        showView(viewButton.dataset.view);
-        return;
-      }
-
-      const actionButton = target.closest("[data-action]");
-
-      if (actionButton) {
-        handleAction(actionButton);
-      }
-    });
-
-    $("#manual-study-form")?.addEventListener("submit", event => {
-      event.preventDefault();
-
-      const success = addStudyRecord({
-        subject: $("#manual-study-subject")?.value,
-        item: $("#manual-study-item")?.value,
-        date: $("#manual-study-date")?.value || todayKey(),
-        minutes: $("#manual-study-minutes")?.value,
-        note: $("#manual-study-note")?.value
+      Settings.saveSettings({
+        dailyTarget: Number(form.elements.dailyGoalMinutes.value),
+        weeklyTarget: Number(form.elements.weeklyGoalMinutes.value)
       });
 
-      if (success) {
-        event.target.reset();
-        setValue("#manual-study-date", todayKey());
-        renderSubjects();
-      }
+      showMessage("設定を保存しました。");
     });
+  });
+}
 
-    $("#manual-study-subject")?.addEventListener("change", () => {
-      renderManualStudyItems();
-    });
+/* =========================================================
+   共通アクション
+   ========================================================= */
 
-    $("#settings-study-form")?.addEventListener(
-      "submit",
-      saveSettingsFromForm
-    );
+function bindGlobalActions() {
+  $$("[data-action='refresh']").forEach(button => {
+    button.addEventListener("click", renderCurrentView);
+  });
+}
 
-    $("#calendar-grid")?.addEventListener("click", event => {
-      const target = event.target;
+function setText(selector, value) {
+  const element = $(selector);
+  if (element) element.textContent = value ?? "";
+}
 
-      if (!(target instanceof Element)) return;
+function setWidth(selector, percent) {
+  const element = $(selector);
+  if (element) element.style.width = `${percent}%`;
+}
 
-      const button = target.closest("[data-calendar-date]");
-      if (!button) return;
+/* =========================================================
+   起動
+   ========================================================= */
 
-      selectedDate = button.dataset.calendarDate;
-      renderCalendar();
-    });
+function startALGOL() {
+  initializeModules();
+  initializeUI();
+}
 
-    $("#cosmos-dialog-confirm")?.addEventListener("click", event => {
-      event.preventDefault();
-
-      const result = readDialogFields();
-
-      if (!result) return;
-
-      closeDialog(result);
-    });
-
-    /*
-     * HTMLの×ボタンとキャンセルボタンは
-     * method="dialog" によって閉じる。
-     * closeイベントでPromiseも確実に終了させる。
-     */
-    $("#cosmos-dialog")?.addEventListener("close", () => {
-      if (dialogResolve) {
-        const resolve = dialogResolve;
-        dialogResolve = null;
-        resolve(null);
-      }
-    });
-
-    $("#cosmos-dialog")?.addEventListener("cancel", event => {
-      event.preventDefault();
-      closeDialog(null);
-    });
-
-    document.addEventListener("change", event => {
-      const input = event.target;
-
-      if (!(input instanceof HTMLInputElement)) return;
-
-      if (input.matches("[data-task-done]")) {
-        const task = data.tasks.find(
-          item => item.id === input.dataset.taskDone
-        );
-
-        if (task) {
-          task.done = input.checked;
-          saveData();
-          renderTasks();
-        }
-      }
-
-      if (input.matches("[data-goal-done]")) {
-        const goal = data.goals.find(
-          item => item.id === input.dataset.goalDone
-        );
-
-        if (goal) {
-          goal.done = input.checked;
-          saveData();
-          renderGoals();
-        }
-      }
-
-      if (input.matches("[data-habit]")) {
-        const habit = data.habits.find(
-          item => item.id === input.dataset.habit
-        );
-
-        if (!habit) return;
-
-        habit.dates = (habit.dates || []).filter(
-          date => date !== todayKey()
-        );
-
-        if (input.checked) {
-          habit.dates.push(todayKey());
-        }
-
-        saveData();
-        renderHabits();
-      }
-    });
-
-    window.addEventListener("resize", () => {
-      if (currentView === "statistics") {
-        renderStatistics();
-      }
-
-      if (currentView === "goals") {
-        renderGoalTree();
-      }
-    });
-  }
-
-  /* =======================================================
-     初期化
-     ======================================================= */
-
-  function init() {
-    closeMenu();
-
-    $$(".page-section").forEach(section => {
-      const active = section.id === "view-home";
-
-      section.hidden = !active;
-      section.classList.toggle("active", active);
-      section.setAttribute("aria-hidden", String(!active));
-    });
-
-    const dialogElement = $("#cosmos-dialog");
-
-    if (dialogElement && !dialogElement.open) {
-      dialogElement.removeAttribute("open");
-    }
-
-    bindEvents();
-
-    document.body.classList.toggle(
-      "animations-disabled",
-      !data.settings.animations
-    );
-
-    document.documentElement.dataset.theme =
-      data.settings.theme || "cosmos";
-
-    renderAll();
-    showView("home");
-
-    console.info("One for All COSMOS: ui.js initialized");
-  }
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init, { once: true });
-  } else {
-    init();
-  }
-})();
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", startALGOL, {
+    once: true
+  });
+} else {
+  startALGOL();
+}
