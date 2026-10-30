@@ -1,801 +1,809 @@
 
 /* =========================================================
-   ONE FOR ALL COSMOS
+   ALGOL — Study Constellation
    js/rocket.js
 
-   宇宙開発・ロケット進行システム
-   ・ロケットの発射 / 飛行 / 着陸
-   ・燃料管理
-   ・月までの飛行距離と進捗率
-   ・学習などによる進捗追加
-   ・発射記録 / 月到達記録
-   ・データ自動保存
+   ROCKET SYSTEM
+
+   ・学習による経験値の獲得
+   ・ロケットのレベル管理
+   ・ロケットパーツの解放と装備
+   ・ミッション管理
+   ・惑星探索
+   ・進行状況の保存
+
+   学習記録のデータ自体は変更しない。
    ========================================================= */
 
 "use strict";
 
-import { store } from "./store.js";
+import { loadData, saveData } from "./store.js";
+import { getAllStudyRecords } from "./study.js";
 
 /* =========================================================
-   基本設定
+   定数
    ========================================================= */
 
-const ROCKET_CONFIG = Object.freeze({
-  version: 1,
+const STORAGE_KEY = "rocket";
 
-  // 月までの距離をシステム上の単位として表現
-  moonDistance: 384400,
+export const ROCKET_CONFIG = {
+  initialLevel: 1,
+  initialExperience: 0,
 
-  // 初期燃料
-  initialFuel: 100,
+  // レベルアップに必要な経験値
+  experiencePerLevel: 100,
 
-  // 進捗を追加できる1回あたりの最大値
-  maxProgressPerAction: 10000,
+  // 学習1分あたりの経験値
+  experiencePerStudyMinute: 1,
 
-  // 初期ロケット名
-  defaultRocketName: "COSMOS-01",
-
-  // 初期状態
-  defaultStatus: "ready"
-});
-
-/* =========================================================
-   内部ユーティリティ
-   ========================================================= */
-
-function createId() {
-  if (
-    typeof crypto !== "undefined" &&
-    typeof crypto.randomUUID === "function"
-  ) {
-    return crypto.randomUUID();
-  }
-
-  return (
-    "rocket-" +
-    Date.now().toString(36) +
-    "-" +
-    Math.random().toString(36).slice(2, 10)
-  );
-}
-
-function clone(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-
-function roundNumber(value, digits = 2) {
-  const number = Number(value);
-
-  if (!Number.isFinite(number)) {
-    return 0;
-  }
-
-  const factor = 10 ** digits;
-
-  return Math.round((number + Number.EPSILON) * factor) / factor;
-}
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function normalizeNonNegative(value) {
-  const number = Number(value);
-
-  if (!Number.isFinite(number)) {
-    return 0;
-  }
-
-  return Math.max(0, number);
-}
-
-function isValidStatus(status) {
-  return [
-    "ready",
-    "flying",
-    "landed",
-    "failed"
-  ].includes(status);
-}
-
-function createDateLabel() {
-  return new Date().toISOString();
-}
+  // 一度に取得できる経験値の上限
+  maxExperiencePerSync: 10000
+};
 
 /* =========================================================
    初期データ
    ========================================================= */
 
-function createDefaultData() {
+function createDefaultRocket() {
   return {
-    version: ROCKET_CONFIG.version,
+    experience: 0,
+    totalExperience: 0,
+    level: 1,
 
-    rocket: {
-      id: createId(),
-      name: ROCKET_CONFIG.defaultRocketName,
-      status: ROCKET_CONFIG.defaultStatus,
-
-      fuel: ROCKET_CONFIG.initialFuel,
-      maxFuel: ROCKET_CONFIG.initialFuel,
-
-      distance: 0,
-
-      launchedAt: null,
-      landedAt: null
+    parts: [],
+    equippedParts: {
+      engine: null,
+      body: null,
+      wings: null,
+      satellite: null
     },
 
-    totalDistance: 0,
+    missions: [],
+    completedMissions: [],
 
-    totalProgressAdded: 0,
+    exploration: [],
 
-    launchCount: 0,
-
-    moonReached: false,
-
-    moonReachedAt: null,
-
-    launchHistory: [],
-
-    progressHistory: [],
-
-    lastUpdated: Date.now()
+    lastStudySync: null,
+    updatedAt: new Date().toISOString()
   };
 }
 
-/* =========================================================
-   データの正規化
-   ========================================================= */
+function getRocketData() {
+  const data = loadData(STORAGE_KEY, null);
 
-function normalizeRocketData(saved) {
-  const defaults = createDefaultData();
-
-  if (!saved || typeof saved !== "object") {
-    return defaults;
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return createDefaultRocket();
   }
 
-  const oldRocket = saved.rocket || {};
+  const defaults = createDefaultRocket();
 
-  const maxFuel = Math.max(
-    1,
-    normalizeNonNegative(
-      oldRocket.maxFuel ?? ROCKET_CONFIG.initialFuel
+  return {
+    ...defaults,
+    ...data,
+
+    equippedParts: {
+      ...defaults.equippedParts,
+      ...(data.equippedParts || {})
+    },
+
+    parts: Array.isArray(data.parts) ? data.parts : [],
+    missions: Array.isArray(data.missions) ? data.missions : [],
+    completedMissions: Array.isArray(data.completedMissions)
+      ? data.completedMissions
+      : [],
+    exploration: Array.isArray(data.exploration)
+      ? data.exploration
+      : []
+  };
+}
+
+function saveRocketData(data) {
+  data.updatedAt = new Date().toISOString();
+  saveData(STORAGE_KEY, data);
+
+  return data;
+}
+
+function createId(prefix) {
+  if (globalThis.crypto?.randomUUID) {
+    return `${prefix}-${globalThis.crypto.randomUUID()}`;
+  }
+
+  return `${prefix}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+}
+
+function clamp(value, min, max) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return min;
+  }
+
+  return Math.min(max, Math.max(min, number));
+}
+
+/* =========================================================
+   レベル・経験値
+   ========================================================= */
+
+export function getExperienceForNextLevel(level) {
+  const currentLevel = Math.max(1, Number(level) || 1);
+
+  return ROCKET_CONFIG.experiencePerLevel *
+    currentLevel;
+}
+
+export function getRocketLevelInfo() {
+  const rocket = getRocketData();
+
+  const level = Math.max(1, Number(rocket.level) || 1);
+  const experience = Math.max(0, Number(rocket.experience) || 0);
+  const required = getExperienceForNextLevel(level);
+
+  return {
+    level,
+    experience,
+    requiredExperience: required,
+    remainingExperience: Math.max(0, required - experience),
+
+    progress: required > 0
+      ? Math.round(clamp(experience / required * 100, 0, 100))
+      : 0,
+
+    totalExperience: Math.max(
+      0,
+      Number(rocket.totalExperience) || 0
     )
+  };
+}
+
+/*
+  経験値を加算する。
+
+  レベルアップした場合も余った経験値を保持する。
+  複数レベルの連続上昇にも対応。
+*/
+
+export function addRocketExperience(amount, reason = "manual") {
+  const value = Math.floor(Number(amount));
+
+  if (!Number.isFinite(value) || value <= 0) {
+    return {
+      gained: 0,
+      levelUps: [],
+      rocket: getRocketLevelInfo()
+    };
+  }
+
+  const rocket = getRocketData();
+  const gained = Math.min(
+    value,
+    ROCKET_CONFIG.maxExperiencePerSync
   );
 
-  const fuel = clamp(
-    normalizeNonNegative(
-      oldRocket.fuel ?? ROCKET_CONFIG.initialFuel
-    ),
-    0,
-    maxFuel
-  );
+  rocket.experience += gained;
+  rocket.totalExperience += gained;
 
-  const distance = Math.min(
-    ROCKET_CONFIG.moonDistance,
-    normalizeNonNegative(oldRocket.distance)
-  );
+  const levelUps = [];
+
+  while (
+    rocket.experience >=
+    getExperienceForNextLevel(rocket.level)
+  ) {
+    const required = getExperienceForNextLevel(rocket.level);
+
+    rocket.experience -= required;
+    rocket.level++;
+
+    levelUps.push({
+      level: rocket.level,
+      reachedAt: new Date().toISOString()
+    });
+  }
+
+  if (!Array.isArray(rocket.levelHistory)) {
+    rocket.levelHistory = [];
+  }
+
+  rocket.levelHistory.push(...levelUps);
+
+  if (levelUps.length > 0) {
+    rocket.lastLevelUp = levelUps[levelUps.length - 1].reachedAt;
+  }
+
+  rocket.lastExperienceReason = reason;
+
+  saveRocketData(rocket);
 
   return {
-    version: ROCKET_CONFIG.version,
-
-    rocket: {
-      id: String(oldRocket.id || createId()),
-      name: String(
-        oldRocket.name || ROCKET_CONFIG.defaultRocketName
-      ),
-
-      status: isValidStatus(oldRocket.status)
-        ? oldRocket.status
-        : ROCKET_CONFIG.defaultStatus,
-
-      fuel,
-      maxFuel,
-
-      distance,
-
-      launchedAt: oldRocket.launchedAt || null,
-      landedAt: oldRocket.landedAt || null
-    },
-
-    totalDistance: normalizeNonNegative(
-      saved.totalDistance
-    ),
-
-    totalProgressAdded: normalizeNonNegative(
-      saved.totalProgressAdded
-    ),
-
-    launchCount: Math.floor(
-      normalizeNonNegative(saved.launchCount)
-    ),
-
-    moonReached: Boolean(saved.moonReached),
-
-    moonReachedAt: saved.moonReachedAt || null,
-
-    launchHistory: Array.isArray(saved.launchHistory)
-      ? saved.launchHistory
-      : [],
-
-    progressHistory: Array.isArray(saved.progressHistory)
-      ? saved.progressHistory
-      : [],
-
-    lastUpdated: Number(saved.lastUpdated) || Date.now()
+    gained,
+    levelUps,
+    rocket: getRocketLevelInfo()
   };
 }
 
 /* =========================================================
-   読み込み・保存
+   学習記録との同期
    ========================================================= */
 
-function loadRocketData() {
-  try {
-    return normalizeRocketData(store.rocket.load(null));
-  } catch (error) {
-    console.error("[Rocket] 読み込みエラー:", error);
-    return createDefaultData();
+/*
+  新しい学習記録だけを経験値に変換する。
+
+  同じ記録から二重に経験値を取得しないよう、
+  処理済みの記録IDを保存する。
+
+  学習記録の削除や編集によって、
+  取得済み経験値を自動で減らすことはしない。
+*/
+
+export function syncStudyExperience() {
+  const rocket = getRocketData();
+  const records = getAllStudyRecords();
+
+  const processedIds = new Set(
+    Array.isArray(rocket.processedStudyRecordIds)
+      ? rocket.processedStudyRecordIds
+      : []
+  );
+
+  const newRecords = records.filter(record => {
+    return (
+      record.id &&
+      !processedIds.has(record.id) &&
+      Number(record.minutes) > 0
+    );
+  });
+
+  if (newRecords.length === 0) {
+    return {
+      newRecordCount: 0,
+      gainedExperience: 0,
+      levelUps: [],
+      rocket: getRocketLevelInfo()
+    };
   }
+
+  const totalMinutes = newRecords.reduce((total, record) => {
+    return total + Math.max(0, Number(record.minutes) || 0);
+  }, 0);
+
+  const gainedExperience = Math.floor(
+    totalMinutes * ROCKET_CONFIG.experiencePerStudyMinute
+  );
+
+  rocket.processedStudyRecordIds = [
+    ...processedIds,
+    ...newRecords.map(record => record.id)
+  ];
+
+  rocket.lastStudySync = new Date().toISOString();
+
+  saveRocketData(rocket);
+
+  const result = addRocketExperience(
+    gainedExperience,
+    "study"
+  );
+
+  return {
+    newRecordCount: newRecords.length,
+    gainedExperience: result.gained,
+    levelUps: result.levelUps,
+    rocket: result.rocket
+  };
 }
 
-let data = loadRocketData();
+/* =========================================================
+   ロケットパーツ
+   ========================================================= */
 
-function saveRocketData() {
-  data.lastUpdated = Date.now();
+export const ROCKET_PART_TYPES = {
+  engine: "エンジン",
+  body: "機体",
+  wings: "翼",
+  satellite: "衛星"
+};
 
-  try {
-    return store.rocket.save(data);
-  } catch (error) {
-    console.error("[Rocket] 保存エラー:", error);
+export const DEFAULT_ROCKET_PARTS = [
+  {
+    id: "engine-basic",
+    name: "スターターエンジン",
+    type: "engine",
+    description: "ロケットの基本エンジン",
+    requiredLevel: 1,
+    rarity: "common"
+  },
+  {
+    id: "body-basic",
+    name: "スターターボディ",
+    type: "body",
+    description: "ロケットの基本機体",
+    requiredLevel: 1,
+    rarity: "common"
+  },
+  {
+    id: "wings-basic",
+    name: "スターターウィング",
+    type: "wings",
+    description: "ロケットの基本翼",
+    requiredLevel: 1,
+    rarity: "common"
+  },
+  {
+    id: "satellite-basic",
+    name: "観測衛星",
+    type: "satellite",
+    description: "宇宙探索を補助する衛星",
+    requiredLevel: 3,
+    rarity: "rare"
+  },
+  {
+    id: "engine-advanced",
+    name: "ネビュラエンジン",
+    type: "engine",
+    description: "高出力のエンジン",
+    requiredLevel: 5,
+    rarity: "rare"
+  },
+  {
+    id: "body-advanced",
+    name: "コスモスボディ",
+    type: "body",
+    description: "強化されたロケット機体",
+    requiredLevel: 8,
+    rarity: "epic"
+  },
+  {
+    id: "wings-advanced",
+    name: "ギャラクシーウィング",
+    type: "wings",
+    description: "長距離飛行に対応した翼",
+    requiredLevel: 12,
+    rarity: "epic"
+  }
+];
+
+export function getAvailableRocketParts() {
+  const rocket = getRocketData();
+
+  return DEFAULT_ROCKET_PARTS.map(part => ({
+    ...part,
+    unlocked: rocket.level >= part.requiredLevel,
+    equipped: rocket.equippedParts[part.type] === part.id
+  }));
+}
+
+export function getUnlockedRocketParts() {
+  return getAvailableRocketParts().filter(
+    part => part.unlocked
+  );
+}
+
+export function unlockRocketPart(partId) {
+  const part = DEFAULT_ROCKET_PARTS.find(
+    item => item.id === partId
+  );
+
+  if (!part) {
+    throw new Error("指定されたパーツが見つかりません。");
+  }
+
+  const rocket = getRocketData();
+
+  if (rocket.level < part.requiredLevel) {
+    throw new Error("ロケットのレベルが足りません。");
+  }
+
+  if (!rocket.parts.includes(partId)) {
+    rocket.parts.push(partId);
+    saveRocketData(rocket);
+  }
+
+  return getAvailableRocketParts().find(
+    item => item.id === partId
+  );
+}
+
+export function equipRocketPart(partId) {
+  const part = DEFAULT_ROCKET_PARTS.find(
+    item => item.id === partId
+  );
+
+  if (!part) {
+    throw new Error("指定されたパーツが見つかりません。");
+  }
+
+  const rocket = getRocketData();
+
+  if (rocket.level < part.requiredLevel) {
+    throw new Error("ロケットのレベルが足りません。");
+  }
+
+  if (!rocket.parts.includes(partId)) {
+    rocket.parts.push(partId);
+  }
+
+  rocket.equippedParts[part.type] = partId;
+
+  saveRocketData(rocket);
+
+  return rocket.equippedParts;
+}
+
+export function unequipRocketPart(type) {
+  if (!Object.hasOwn(ROCKET_PART_TYPES, type)) {
+    throw new Error("指定されたパーツ種類は存在しません。");
+  }
+
+  const rocket = getRocketData();
+  rocket.equippedParts[type] = null;
+
+  saveRocketData(rocket);
+
+  return rocket.equippedParts;
+}
+
+/* =========================================================
+   ミッション管理
+   ========================================================= */
+
+export function getAllMissions() {
+  return getRocketData().missions;
+}
+
+export function addMission(data = {}) {
+  const title = String(data.title ?? "").trim();
+
+  if (!title) {
+    throw new Error("ミッション名を入力してください。");
+  }
+
+  const rocket = getRocketData();
+
+  const mission = {
+    id: createId("mission"),
+    title,
+    description: String(data.description ?? "").trim(),
+
+    type: data.type || "custom",
+
+    target: Math.max(1, Number(data.target) || 1),
+    current: 0,
+
+    rewardExperience: Math.max(
+      0,
+      Number(data.rewardExperience) || 0
+    ),
+
+    status: "active",
+    createdAt: new Date().toISOString(),
+    completedAt: null
+  };
+
+  rocket.missions.push(mission);
+  saveRocketData(rocket);
+
+  return mission;
+}
+
+export function updateMission(missionId, updates = {}) {
+  const rocket = getRocketData();
+
+  const index = rocket.missions.findIndex(
+    mission => mission.id === missionId
+  );
+
+  if (index === -1) {
+    throw new Error("ミッションが見つかりません。");
+  }
+
+  const mission = { ...rocket.missions[index] };
+
+  if (updates.title !== undefined) {
+    const title = String(updates.title).trim();
+
+    if (!title) {
+      throw new Error("ミッション名を入力してください。");
+    }
+
+    mission.title = title;
+  }
+
+  if (updates.description !== undefined) {
+    mission.description = String(updates.description).trim();
+  }
+
+  if (updates.target !== undefined) {
+    mission.target = Math.max(1, Number(updates.target) || 1);
+  }
+
+  if (updates.rewardExperience !== undefined) {
+    mission.rewardExperience = Math.max(
+      0,
+      Number(updates.rewardExperience) || 0
+    );
+  }
+
+  rocket.missions[index] = mission;
+  saveRocketData(rocket);
+
+  return mission;
+}
+
+export function addMissionProgress(missionId, amount = 1) {
+  const rocket = getRocketData();
+
+  const mission = rocket.missions.find(
+    item => item.id === missionId
+  );
+
+  if (!mission) {
+    throw new Error("ミッションが見つかりません。");
+  }
+
+  if (mission.status !== "active") {
+    return mission;
+  }
+
+  mission.current = Math.min(
+    mission.target,
+    mission.current + Math.max(0, Number(amount) || 0)
+  );
+
+  if (mission.current >= mission.target) {
+    mission.status = "completed";
+    mission.completedAt = new Date().toISOString();
+
+    if (!rocket.completedMissions.includes(mission.id)) {
+      rocket.completedMissions.push(mission.id);
+    }
+
+    saveRocketData(rocket);
+
+    if (!mission.rewardClaimed) {
+      mission.rewardClaimed = true;
+
+      saveRocketData(rocket);
+
+      if (mission.rewardExperience > 0) {
+        addRocketExperience(
+          mission.rewardExperience,
+          "mission"
+        );
+      }
+    }
+
+    return mission;
+  }
+
+  saveRocketData(rocket);
+
+  return mission;
+}
+
+export function deleteMission(missionId) {
+  const rocket = getRocketData();
+
+  const originalLength = rocket.missions.length;
+
+  rocket.missions = rocket.missions.filter(
+    mission => mission.id !== missionId
+  );
+
+  if (rocket.missions.length === originalLength) {
     return false;
   }
+
+  saveRocketData(rocket);
+
+  return true;
 }
 
 /* =========================================================
-   基本情報
+   惑星・宇宙探索
    ========================================================= */
 
-function getRocket() {
-  return clone(data.rocket);
-}
+export const DEFAULT_PLANETS = [
+  {
+    id: "moon",
+    name: "LUNA",
+    displayName: "月",
+    description: "宇宙探索の最初の目的地",
+    requiredLevel: 1,
+    rewardExperience: 20
+  },
+  {
+    id: "mars",
+    name: "MARS",
+    displayName: "火星",
+    description: "赤い大地が広がる惑星",
+    requiredLevel: 3,
+    rewardExperience: 50
+  },
+  {
+    id: "jupiter",
+    name: "JUPITER",
+    displayName: "木星",
+    description: "巨大なガス惑星",
+    requiredLevel: 6,
+    rewardExperience: 100
+  },
+  {
+    id: "saturn",
+    name: "SATURN",
+    displayName: "土星",
+    description: "美しい環を持つ惑星",
+    requiredLevel: 10,
+    rewardExperience: 150
+  },
+  {
+    id: "neptune",
+    name: "NEPTUNE",
+    displayName: "海王星",
+    description: "遠い青い惑星",
+    requiredLevel: 15,
+    rewardExperience: 250
+  }
+];
 
-function getRocketStatus() {
-  return data.rocket.status;
-}
+export function getAllPlanets() {
+  const rocket = getRocketData();
 
-function getRocketName() {
-  return data.rocket.name;
-}
+  return DEFAULT_PLANETS.map(planet => {
+    const exploration = rocket.exploration.find(
+      item => item.planetId === planet.id
+    );
 
-function renameRocket(name) {
-  const nextName = String(name || "").trim();
-
-  if (!nextName) {
     return {
-      success: false,
-      message: "ロケット名を入力してください。"
+      ...planet,
+      unlocked: rocket.level >= planet.requiredLevel,
+      explored: Boolean(exploration?.explored),
+      exploredAt: exploration?.exploredAt ?? null
     };
-  }
-
-  data.rocket.name = nextName;
-
-  const saved = saveRocketData();
-
-  return {
-    success: saved !== false,
-    name: data.rocket.name,
-    message: "ロケット名を更新しました。"
-  };
+  });
 }
 
-/* =========================================================
-   月までの進捗
-   ========================================================= */
-
-function getDistanceToMoon() {
-  return Math.max(
-    0,
-    ROCKET_CONFIG.moonDistance - data.rocket.distance
-  );
-}
-
-function getProgressPercentage() {
-  if (data.moonReached) {
-    return 100;
-  }
-
-  return roundNumber(
-    (data.rocket.distance / ROCKET_CONFIG.moonDistance) * 100,
-    2
-  );
-}
-
-function getProgressDetails() {
-  return {
-    rocketName: data.rocket.name,
-
-    status: data.rocket.status,
-
-    distance: roundNumber(data.rocket.distance),
-
-    moonDistance: ROCKET_CONFIG.moonDistance,
-
-    distanceRemaining: roundNumber(getDistanceToMoon()),
-
-    percentage: getProgressPercentage(),
-
-    fuel: data.rocket.fuel,
-
-    maxFuel: data.rocket.maxFuel,
-
-    fuelPercentage: roundNumber(
-      (data.rocket.fuel / data.rocket.maxFuel) * 100,
-      2
-    ),
-
-    launchCount: data.launchCount,
-
-    moonReached: data.moonReached,
-
-    moonReachedAt: data.moonReachedAt
-  };
-}
-
-/* =========================================================
-   燃料管理
-   ========================================================= */
-
-function addFuel(amount) {
-  const value = Number(amount);
-
-  if (!Number.isFinite(value) || value <= 0) {
-    return {
-      success: false,
-      message: "追加する燃料は0より大きい数値にしてください。"
-    };
-  }
-
-  if (data.rocket.status === "flying") {
-    return {
-      success: false,
-      message: "飛行中は燃料を追加できません。"
-    };
-  }
-
-  const before = data.rocket.fuel;
-
-  data.rocket.fuel = roundNumber(
-    clamp(
-      before + value,
-      0,
-      data.rocket.maxFuel
-    )
+export function explorePlanet(planetId) {
+  const planet = DEFAULT_PLANETS.find(
+    item => item.id === planetId
   );
 
-  const added = roundNumber(data.rocket.fuel - before);
-
-  const saved = saveRocketData();
-
-  return {
-    success: saved !== false,
-    added,
-    fuel: data.rocket.fuel,
-    maxFuel: data.rocket.maxFuel,
-    message: added > 0
-      ? "燃料を追加しました。"
-      : "燃料はすでに最大です。"
-  };
-}
-
-function setFuel(amount) {
-  const value = Number(amount);
-
-  if (!Number.isFinite(value) || value < 0) {
-    return {
-      success: false,
-      message: "燃料は0以上の数値にしてください。"
-    };
+  if (!planet) {
+    throw new Error("指定された惑星が見つかりません。");
   }
 
-  if (data.rocket.status === "flying") {
-    return {
-      success: false,
-      message: "飛行中は燃料を変更できません。"
-    };
+  const rocket = getRocketData();
+
+  if (rocket.level < planet.requiredLevel) {
+    throw new Error("ロケットのレベルが足りません。");
   }
 
-  data.rocket.fuel = roundNumber(
-    clamp(value, 0, data.rocket.maxFuel)
+  let exploration = rocket.exploration.find(
+    item => item.planetId === planetId
   );
 
-  const saved = saveRocketData();
-
-  return {
-    success: saved !== false,
-    fuel: data.rocket.fuel
-  };
-}
-
-function setMaxFuel(amount) {
-  const value = Number(amount);
-
-  if (!Number.isFinite(value) || value <= 0) {
+  if (exploration?.explored) {
     return {
       success: false,
-      message: "最大燃料は0より大きい数値にしてください。"
+      reason: "already_explored",
+      planet
     };
   }
 
-  if (data.rocket.status === "flying") {
-    return {
-      success: false,
-      message: "飛行中は最大燃料を変更できません。"
+  if (!exploration) {
+    exploration = {
+      planetId,
+      explored: false,
+      exploredAt: null
     };
+
+    rocket.exploration.push(exploration);
   }
 
-  data.rocket.maxFuel = roundNumber(value);
+  exploration.explored = true;
+  exploration.exploredAt = new Date().toISOString();
 
-  data.rocket.fuel = Math.min(
-    data.rocket.fuel,
-    data.rocket.maxFuel
-  );
+  saveRocketData(rocket);
 
-  const saved = saveRocketData();
+  if (planet.rewardExperience > 0) {
+    addRocketExperience(
+      planet.rewardExperience,
+      "exploration"
+    );
+  }
 
   return {
-    success: saved !== false,
-    fuel: data.rocket.fuel,
-    maxFuel: data.rocket.maxFuel
+    success: true,
+    planet,
+    rewardExperience: planet.rewardExperience
   };
 }
 
 /* =========================================================
-   発射
+   ロケット全体の状態
    ========================================================= */
 
-function launchRocket() {
-  if (data.moonReached) {
-    return {
-      success: false,
-      message: "すでに月へ到達しています。"
-    };
-  }
+export function getRocketStatus() {
+  const rocket = getRocketData();
+  const levelInfo = getRocketLevelInfo();
 
-  if (data.rocket.status === "flying") {
-    return {
-      success: false,
-      message: "ロケットはすでに飛行中です。"
-    };
-  }
-
-  if (data.rocket.fuel <= 0) {
-    return {
-      success: false,
-      message: "燃料がありません。燃料を補充してください。"
-    };
-  }
-
-  data.rocket.status = "flying";
-
-  data.rocket.launchedAt = createDateLabel();
-
-  data.rocket.landedAt = null;
-
-  data.launchCount += 1;
-
-  const history = {
-    id: createId(),
-    rocketName: data.rocket.name,
-    launchedAt: data.rocket.launchedAt,
-    distanceAtLaunch: data.rocket.distance,
-    status: "flying"
-  };
-
-  data.launchHistory.unshift(history);
-
-  const saved = saveRocketData();
+  const planets = getAllPlanets();
+  const missions = rocket.missions;
 
   return {
-    success: saved !== false,
-    rocket: getRocket(),
-    message: "ロケットを発射しました。"
+    level: levelInfo.level,
+    experience: levelInfo.experience,
+    totalExperience: levelInfo.totalExperience,
+    requiredExperience: levelInfo.requiredExperience,
+    remainingExperience: levelInfo.remainingExperience,
+    progress: levelInfo.progress,
+
+    unlockedParts: getUnlockedRocketParts().length,
+    totalParts: DEFAULT_ROCKET_PARTS.length,
+
+    completedMissions: missions.filter(
+      mission => mission.status === "completed"
+    ).length,
+
+    activeMissions: missions.filter(
+      mission => mission.status === "active"
+    ).length,
+
+    exploredPlanets: planets.filter(
+      planet => planet.explored
+    ).length,
+
+    totalPlanets: planets.length,
+
+    equippedParts: rocket.equippedParts
   };
-}
-
-/* =========================================================
-   飛行距離の追加
-   ========================================================= */
-
-/*
-  distance はシステム上の距離単位です。
-
-  この関数は、画面側やゲーム進行処理から呼び出します。
-  勉強時間から距離への換算ルールはまだ固定していません。
-*/
-
-function addDistance(distance, source = "manual") {
-  const value = Number(distance);
-
-  if (!Number.isFinite(value) || value <= 0) {
-    return {
-      success: false,
-      message: "追加する距離は0より大きい数値にしてください。"
-    };
-  }
-
-  if (data.moonReached) {
-    return {
-      success: false,
-      message: "月への到達はすでに記録されています。"
-    };
-  }
-
-  const safeValue = Math.min(
-    value,
-    ROCKET_CONFIG.maxProgressPerAction
-  );
-
-  const before = data.rocket.distance;
-
-  data.rocket.distance = Math.min(
-    ROCKET_CONFIG.moonDistance,
-    roundNumber(before + safeValue)
-  );
-
-  const added = roundNumber(
-    data.rocket.distance - before
-  );
-
-  data.totalDistance = roundNumber(
-    data.totalDistance + added
-  );
-
-  data.totalProgressAdded = roundNumber(
-    data.totalProgressAdded + added
-  );
-
-  const reachedMoon =
-    data.rocket.distance >= ROCKET_CONFIG.moonDistance;
-
-  const record = {
-    id: createId(),
-    amount: added,
-    source: String(source || "manual"),
-    date: createDateLabel(),
-    distanceAfter: data.rocket.distance
-  };
-
-  data.progressHistory.unshift(record);
-
-  if (data.progressHistory.length > 1000) {
-    data.progressHistory = data.progressHistory.slice(0, 1000);
-  }
-
-  if (reachedMoon) {
-    data.rocket.distance = ROCKET_CONFIG.moonDistance;
-
-    data.moonReached = true;
-
-    data.moonReachedAt = createDateLabel();
-
-    data.rocket.status = "landed";
-
-    data.rocket.landedAt = data.moonReachedAt;
-
-    const latestLaunch = data.launchHistory[0];
-
-    if (latestLaunch) {
-      latestLaunch.status = "landed";
-      latestLaunch.landedAt = data.moonReachedAt;
-    }
-  }
-
-  const saved = saveRocketData();
-
-  return {
-    success: saved !== false,
-    added,
-    distance: data.rocket.distance,
-    distanceRemaining: getDistanceToMoon(),
-    percentage: getProgressPercentage(),
-    moonReached: data.moonReached,
-    message: data.moonReached
-      ? "月への到達を記録しました！"
-      : "飛行距離を更新しました。"
-  };
-}
-
-/* =========================================================
-   学習記録からの進捗追加
-   ========================================================= */
-
-/*
-  minutes は勉強時間（分）です。
-  distancePerMinute は、1分あたりの進行距離です。
-
-  換算率は画面側から指定してください。
-  自動で勉強時間を読み取る機能は、study.jsとの接続後に実装します。
-*/
-
-function addStudyProgress(minutes, distancePerMinute = 1) {
-  const studyMinutes = Number(minutes);
-  const rate = Number(distancePerMinute);
-
-  if (
-    !Number.isFinite(studyMinutes) ||
-    studyMinutes <= 0
-  ) {
-    return {
-      success: false,
-      message: "勉強時間は0より大きい数値にしてください。"
-    };
-  }
-
-  if (!Number.isFinite(rate) || rate <= 0) {
-    return {
-      success: false,
-      message: "換算率は0より大きい数値にしてください。"
-    };
-  }
-
-  const distance = Math.min(
-    studyMinutes * rate,
-    ROCKET_CONFIG.maxProgressPerAction
-  );
-
-  return addDistance(distance, "study");
-}
-
-/* =========================================================
-   着陸・飛行終了
-   ========================================================= */
-
-function landRocket() {
-  if (data.rocket.status !== "flying") {
-    return {
-      success: false,
-      message: "飛行中のロケットがありません。"
-    };
-  }
-
-  data.rocket.status = "landed";
-
-  data.rocket.landedAt = createDateLabel();
-
-  const latestLaunch = data.launchHistory[0];
-
-  if (latestLaunch) {
-    latestLaunch.status = "landed";
-    latestLaunch.landedAt = data.rocket.landedAt;
-  }
-
-  const saved = saveRocketData();
-
-  return {
-    success: saved !== false,
-    rocket: getRocket(),
-    message: "ロケットを着陸状態にしました。"
-  };
-}
-
-function returnToReady() {
-  if (data.rocket.status === "flying") {
-    return {
-      success: false,
-      message: "飛行中は準備状態に戻せません。"
-    };
-  }
-
-  if (data.moonReached) {
-    return {
-      success: false,
-      message: "月への到達後は状態を戻せません。"
-    };
-  }
-
-  data.rocket.status = "ready";
-
-  const saved = saveRocketData();
-
-  return {
-    success: saved !== false,
-    rocket: getRocket(),
-    message: "ロケットを準備状態に戻しました。"
-  };
-}
-
-/* =========================================================
-   履歴
-   ========================================================= */
-
-function getLaunchHistory(limit = 50) {
-  const safeLimit = Math.max(
-    0,
-    Math.floor(Number(limit) || 0)
-  );
-
-  return clone(data.launchHistory.slice(0, safeLimit));
-}
-
-function getProgressHistory(limit = 100) {
-  const safeLimit = Math.max(
-    0,
-    Math.floor(Number(limit) || 0)
-  );
-
-  return clone(data.progressHistory.slice(0, safeLimit));
 }
 
 /* =========================================================
    初期化
    ========================================================= */
 
-function initializeRocket() {
-  data = loadRocketData();
+export function initializeRocket() {
+  const rocket = getRocketData();
 
-  return {
-    rocket: getRocket(),
-    progress: getProgressDetails()
-  };
+  saveRocketData(rocket);
+
+  return getRocketStatus();
 }
 
 /* =========================================================
-   リセット
+   デフォルトエクスポート
    ========================================================= */
 
-/*
-  すべてのロケット進捗・履歴を消去します。
-  通常の起動時には呼び出さないでください。
-*/
-
-function resetRocket() {
-  data = createDefaultData();
-
-  const saved = saveRocketData();
-
-  return {
-    success: saved !== false,
-    rocket: getRocket(),
-    progress: getProgressDetails(),
-    message: "ロケットデータを初期化しました。"
-  };
-}
-
-/* =========================================================
-   公開API
-   ========================================================= */
-
-export const rocket = Object.freeze({
-  getConfig: () => ({ ...ROCKET_CONFIG }),
+export default {
+  ROCKET_CONFIG,
+  ROCKET_PART_TYPES,
+  DEFAULT_ROCKET_PARTS,
+  DEFAULT_PLANETS,
 
   initializeRocket,
 
-  getRocket,
-  getRocketStatus,
-  getRocketName,
-  renameRocket,
+  getRocketLevelInfo,
+  getExperienceForNextLevel,
+  addRocketExperience,
+  syncStudyExperience,
 
-  getDistanceToMoon,
-  getProgressPercentage,
-  getProgressDetails,
+  getAvailableRocketParts,
+  getUnlockedRocketParts,
+  unlockRocketPart,
+  equipRocketPart,
+  unequipRocketPart,
 
-  addFuel,
-  setFuel,
-  setMaxFuel,
+  getAllMissions,
+  addMission,
+  updateMission,
+  addMissionProgress,
+  deleteMission,
 
-  launchRocket,
-  addDistance,
-  addStudyProgress,
+  getAllPlanets,
+  explorePlanet,
 
-  landRocket,
-  returnToReady,
-
-  getLaunchHistory,
-  getProgressHistory,
-
-  resetRocket,
-
-  save: saveRocketData
-});
-
-export default rocket;
+  getRocketStatus
+};
