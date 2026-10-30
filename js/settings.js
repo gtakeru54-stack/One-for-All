@@ -1,883 +1,588 @@
 
 /* =========================================================
-   ONE FOR ALL COSMOS
+   ALGOL — Study Constellation
    js/settings.js
 
-   アプリ共通設定
-   ・1日の学習目標
-   ・週の学習目標
-   ・テーマ設定
-   ・通知設定
-   ・タイマー設定
-   ・ホーム画面設定
-   ・カレンダー設定
-   ・プライバシー設定
-   ・設定の初期化
+   APPLICATION SETTINGS SYSTEM
 
-   保存先：js/store.js
+   ・アプリ設定の取得・保存
+   ・テーマ設定
+   ・学習目標設定
+   ・アニメーション設定
+   ・通知設定
+   ・設定の初期化・リセット
+   ・設定変更の検証
+
+   保存先：store.js の settings
    ========================================================= */
 
 "use strict";
 
-import { store } from "./store.js";
+import { loadData, saveData } from "./store.js";
 
-/* ---------------------------------------------------------
-   初期設定
-   --------------------------------------------------------- */
+/* =========================================================
+   デフォルト設定
+   ========================================================= */
 
 export const DEFAULT_SETTINGS = Object.freeze({
-  version: 1,
+  theme: "dark",
 
-  study: {
-    dailyGoalMinutes: 120,
-    weeklyGoalMinutes: 840,
-    minimumActionMinutes: 5,
-    defaultTimerMinutes: 25,
-    autoSaveTimer: true,
-    showTimerSeconds: true,
-  },
+  dailyTarget: 60,
+  weeklyTarget: 420,
 
-  appearance: {
-    theme: "cosmos",
-    animations: true,
-    compactMode: false,
-    showStars: true,
-  },
+  animations: true,
 
   notifications: {
     enabled: false,
     studyReminder: false,
-    studyReminderTime: "19:00",
-    eventReminder: false,
-    countdownReminderDays: 7,
+    calendarReminder: false,
+    goalReminder: false
   },
 
-  home: {
-    showDailyGoal: true,
-    showNextEvent: true,
-    showNextStudyItem: true,
-    showRocket: true,
-    showHabitList: true,
-    showFinance: true,
+  study: {
+    timerSound: true,
+    autoSave: true,
+    showSeconds: true
   },
 
   calendar: {
-    weekStartsOnMonday: true,
-    defaultView: "month",
+    weekStartsOn: 1,
+    showCompletedTasks: true
   },
 
-  privacy: {
-    shareStudyRecords: false,
+  statistics: {
+    defaultPeriod: "week",
+    chartGrouping: "subject"
   },
+
+  appearance: {
+    compactMode: false,
+    showSeconds: true
+  }
 });
 
-/* ---------------------------------------------------------
-   値の検証
-   --------------------------------------------------------- */
+/* =========================================================
+   設定のコピー
+   ========================================================= */
 
-function isPlainObject(value) {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value)
-  );
+function cloneDefaults() {
+  return JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
 }
 
-function clampNumber(value, min, max, fallback) {
-  const number = Number(value);
+/* =========================================================
+   オブジェクトの安全な統合
+   ========================================================= */
 
-  if (!Number.isFinite(number)) {
-    return fallback;
+function mergeSettings(defaults, saved) {
+  if (
+    !defaults ||
+    typeof defaults !== "object" ||
+    Array.isArray(defaults)
+  ) {
+    return saved;
   }
 
-  return Math.min(
-    max,
-    Math.max(min, Math.floor(number))
-  );
-}
+  const result = { ...defaults };
 
-function normalizeTime(value, fallback) {
-  if (typeof value !== "string") {
-    return fallback;
+  if (
+    !saved ||
+    typeof saved !== "object" ||
+    Array.isArray(saved)
+  ) {
+    return result;
   }
 
-  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value)
-    ? value
-    : fallback;
+  for (const key of Object.keys(saved)) {
+    if (
+      defaults[key] &&
+      typeof defaults[key] === "object" &&
+      !Array.isArray(defaults[key])
+    ) {
+      result[key] = mergeSettings(
+        defaults[key],
+        saved[key]
+      );
+    } else {
+      result[key] = saved[key];
+    }
+  }
+
+  return result;
 }
 
-function normalizeTheme(value) {
-  const allowedThemes = [
-    "cosmos",
-    "dark",
-    "light",
-  ];
+/* =========================================================
+   設定取得
+   ========================================================= */
 
-  return allowedThemes.includes(value)
-    ? value
-    : DEFAULT_SETTINGS.appearance.theme;
-}
-
-function normalizeCalendarView(value) {
-  const allowedViews = [
-    "month",
-    "week",
-    "day",
-  ];
-
-  return allowedViews.includes(value)
-    ? value
-    : DEFAULT_SETTINGS.calendar.defaultView;
-}
-
-/* ---------------------------------------------------------
-   設定データの正規化
-   --------------------------------------------------------- */
-
-function normalizeSettings(input) {
-  const source = isPlainObject(input) ? input : {};
-
-  const study = isPlainObject(source.study)
-    ? source.study
-    : {};
-
-  const appearance = isPlainObject(source.appearance)
-    ? source.appearance
-    : {};
-
-  const notifications = isPlainObject(source.notifications)
-    ? source.notifications
-    : {};
-
-  const home = isPlainObject(source.home)
-    ? source.home
-    : {};
-
-  const calendar = isPlainObject(source.calendar)
-    ? source.calendar
-    : {};
-
-  const privacy = isPlainObject(source.privacy)
-    ? source.privacy
-    : {};
-
-  return {
-    version: 1,
-
-    study: {
-      dailyGoalMinutes: clampNumber(
-        study.dailyGoalMinutes,
-        1,
-        1440,
-        DEFAULT_SETTINGS.study.dailyGoalMinutes
-      ),
-
-      weeklyGoalMinutes: clampNumber(
-        study.weeklyGoalMinutes,
-        1,
-        10080,
-        DEFAULT_SETTINGS.study.weeklyGoalMinutes
-      ),
-
-      minimumActionMinutes: clampNumber(
-        study.minimumActionMinutes,
-        1,
-        60,
-        DEFAULT_SETTINGS.study.minimumActionMinutes
-      ),
-
-      defaultTimerMinutes: clampNumber(
-        study.defaultTimerMinutes,
-        1,
-        180,
-        DEFAULT_SETTINGS.study.defaultTimerMinutes
-      ),
-
-      autoSaveTimer:
-        typeof study.autoSaveTimer === "boolean"
-          ? study.autoSaveTimer
-          : DEFAULT_SETTINGS.study.autoSaveTimer,
-
-      showTimerSeconds:
-        typeof study.showTimerSeconds === "boolean"
-          ? study.showTimerSeconds
-          : DEFAULT_SETTINGS.study.showTimerSeconds,
-    },
-
-    appearance: {
-      theme: normalizeTheme(appearance.theme),
-
-      animations:
-        typeof appearance.animations === "boolean"
-          ? appearance.animations
-          : DEFAULT_SETTINGS.appearance.animations,
-
-      compactMode:
-        typeof appearance.compactMode === "boolean"
-          ? appearance.compactMode
-          : DEFAULT_SETTINGS.appearance.compactMode,
-
-      showStars:
-        typeof appearance.showStars === "boolean"
-          ? appearance.showStars
-          : DEFAULT_SETTINGS.appearance.showStars,
-    },
-
-    notifications: {
-      enabled:
-        typeof notifications.enabled === "boolean"
-          ? notifications.enabled
-          : DEFAULT_SETTINGS.notifications.enabled,
-
-      studyReminder:
-        typeof notifications.studyReminder === "boolean"
-          ? notifications.studyReminder
-          : DEFAULT_SETTINGS.notifications.studyReminder,
-
-      studyReminderTime: normalizeTime(
-        notifications.studyReminderTime,
-        DEFAULT_SETTINGS.notifications.studyReminderTime
-      ),
-
-      eventReminder:
-        typeof notifications.eventReminder === "boolean"
-          ? notifications.eventReminder
-          : DEFAULT_SETTINGS.notifications.eventReminder,
-
-      countdownReminderDays: clampNumber(
-        notifications.countdownReminderDays,
-        0,
-        365,
-        DEFAULT_SETTINGS.notifications.countdownReminderDays
-      ),
-    },
-
-    home: {
-      showDailyGoal:
-        typeof home.showDailyGoal === "boolean"
-          ? home.showDailyGoal
-          : DEFAULT_SETTINGS.home.showDailyGoal,
-
-      showNextEvent:
-        typeof home.showNextEvent === "boolean"
-          ? home.showNextEvent
-          : DEFAULT_SETTINGS.home.showNextEvent,
-
-      showNextStudyItem:
-        typeof home.showNextStudyItem === "boolean"
-          ? home.showNextStudyItem
-          : DEFAULT_SETTINGS.home.showNextStudyItem,
-
-      showRocket:
-        typeof home.showRocket === "boolean"
-          ? home.showRocket
-          : DEFAULT_SETTINGS.home.showRocket,
-
-      showHabitList:
-        typeof home.showHabitList === "boolean"
-          ? home.showHabitList
-          : DEFAULT_SETTINGS.home.showHabitList,
-
-      showFinance:
-        typeof home.showFinance === "boolean"
-          ? home.showFinance
-          : DEFAULT_SETTINGS.home.showFinance,
-    },
-
-    calendar: {
-      weekStartsOnMonday:
-        typeof calendar.weekStartsOnMonday === "boolean"
-          ? calendar.weekStartsOnMonday
-          : DEFAULT_SETTINGS.calendar.weekStartsOnMonday,
-
-      defaultView: normalizeCalendarView(
-        calendar.defaultView
-      ),
-    },
-
-    privacy: {
-      // 学習記録の共有は初期状態で無効。
-      // この設定だけで外部送信処理は追加されない。
-      shareStudyRecords:
-        typeof privacy.shareStudyRecords === "boolean"
-          ? privacy.shareStudyRecords
-          : false,
-    },
-  };
-}
-
-/* ---------------------------------------------------------
-   設定の取得
-   --------------------------------------------------------- */
-
-/**
- * 現在の設定を取得する
- */
 export function getSettings() {
-  try {
-    const stored = store.settings.load(null);
-    return normalizeSettings(stored);
-  } catch (error) {
-    console.error(
-      "[Settings] 設定の読み込みに失敗しました:",
-      error
-    );
+  const saved = loadData("settings", {});
 
-    return normalizeSettings(DEFAULT_SETTINGS);
-  }
+  return mergeSettings(
+    cloneDefaults(),
+    saved
+  );
 }
 
-/**
- * 指定した設定項目を取得する
- *
- * 使用例：
- * getSetting("study.dailyGoalMinutes");
- */
-export function getSetting(path) {
-  if (typeof path !== "string" || !path.trim()) {
-    return undefined;
-  }
+/* =========================================================
+   設定保存
+   ========================================================= */
 
-  const settings = getSettings();
-  const keys = path.split(".");
-  let current = settings;
-
-  for (const key of keys) {
-    if (
-      !current ||
-      typeof current !== "object" ||
-      !Object.prototype.hasOwnProperty.call(current, key)
-    ) {
-      return undefined;
-    }
-
-    current = current[key];
-  }
-
-  return current;
-}
-
-/* ---------------------------------------------------------
-   設定の保存
-   --------------------------------------------------------- */
-
-/**
- * 設定全体を保存する
- */
 export function saveSettings(settings) {
-  if (!isPlainObject(settings)) {
-    return {
-      success: false,
-      error: "設定データが正しくありません。",
-    };
+  if (
+    !settings ||
+    typeof settings !== "object" ||
+    Array.isArray(settings)
+  ) {
+    throw new Error("正しい設定データを指定してください。");
   }
 
-  const normalized = normalizeSettings(settings);
+  const merged = mergeSettings(
+    cloneDefaults(),
+    settings
+  );
 
-  try {
-    const result = store.settings.save(normalized);
+  validateSettings(merged);
 
-    if (result === false) {
-      return {
-        success: false,
-        error: "設定を保存できませんでした。",
-      };
-    }
+  saveData("settings", merged);
 
-    notifySettingsChange();
-
-    return {
-      success: true,
-      settings: normalized,
-    };
-  } catch (error) {
-    console.error(
-      "[Settings] 設定の保存に失敗しました:",
-      error
-    );
-
-    return {
-      success: false,
-      error: "設定の保存に失敗しました。",
-    };
-  }
+  return merged;
 }
 
-/**
- * 指定した設定項目だけを変更する
- *
- * 使用例：
- * setSetting("study.dailyGoalMinutes", 180);
- * setSetting("appearance.animations", false);
- */
-export function setSetting(path, value) {
-  if (typeof path !== "string" || !path.trim()) {
-    return {
-      success: false,
-      error: "設定項目が指定されていません。",
-    };
-  }
+/* =========================================================
+   設定値の取得
+   ========================================================= */
 
-  const keys = path.split(".");
-
-  if (keys.some((key) => !key)) {
-    return {
-      success: false,
-      error: "設定項目の指定が正しくありません。",
-    };
+export function getSetting(key, fallback = undefined) {
+  if (typeof key !== "string" || !key.trim()) {
+    return fallback;
   }
 
   const settings = getSettings();
-  let current = settings;
 
-  for (let index = 0; index < keys.length - 1; index += 1) {
-    const key = keys[index];
+  const keys = key.split(".");
+  let value = settings;
 
+  for (const part of keys) {
     if (
-      !Object.prototype.hasOwnProperty.call(current, key) ||
-      !isPlainObject(current[key])
+      value === null ||
+      typeof value !== "object" ||
+      !Object.prototype.hasOwnProperty.call(value, part)
     ) {
-      return {
-        success: false,
-        error: "変更できない設定項目です。",
-      };
+      return fallback;
     }
 
-    current = current[key];
+    value = value[part];
+  }
+
+  return value;
+}
+
+/* =========================================================
+   設定値の変更
+
+   例：
+   setSetting("theme", "dark")
+   setSetting("notifications.enabled", true)
+   ========================================================= */
+
+export function setSetting(key, value) {
+  if (typeof key !== "string" || !key.trim()) {
+    throw new Error("設定項目を指定してください。");
+  }
+
+  const settings = getSettings();
+  const keys = key.split(".");
+  let target = settings;
+
+  for (let i = 0; i < keys.length - 1; i++) {
+    const part = keys[i];
+
+    if (
+      !target[part] ||
+      typeof target[part] !== "object" ||
+      Array.isArray(target[part])
+    ) {
+      throw new Error(`設定項目が存在しません：${key}`);
+    }
+
+    target = target[part];
   }
 
   const finalKey = keys[keys.length - 1];
 
   if (
-    !Object.prototype.hasOwnProperty.call(current, finalKey)
+    !Object.prototype.hasOwnProperty.call(
+      target,
+      finalKey
+    )
   ) {
-    return {
-      success: false,
-      error: "その設定項目は存在しません。",
-    };
+    throw new Error(`設定項目が存在しません：${key}`);
   }
 
-  current[finalKey] = value;
+  target[finalKey] = value;
 
-  const result = saveSettings(settings);
+  validateSettings(settings);
+  saveData("settings", settings);
 
-  if (!result.success) {
-    return result;
+  return value;
+}
+
+/* =========================================================
+   設定の検証
+   ========================================================= */
+
+export function validateSettings(settings) {
+  if (!settings || typeof settings !== "object") {
+    throw new Error("設定データが不正です。");
   }
 
-  return {
-    success: true,
-    value: getSetting(path),
-  };
-}
-
-/* ---------------------------------------------------------
-   学習目標の専用関数
-   --------------------------------------------------------- */
-
-/**
- * 1日の学習目標を分単位で取得する
- */
-export function getDailyStudyGoalMinutes() {
-  return getSettings().study.dailyGoalMinutes;
-}
-
-/**
- * 1週間の学習目標を分単位で取得する
- */
-export function getWeeklyStudyGoalMinutes() {
-  return getSettings().study.weeklyGoalMinutes;
-}
-
-/**
- * 1日の学習目標を変更する
- */
-export function setDailyStudyGoalMinutes(minutes) {
-  const value = Number(minutes);
+  if (!["dark", "light", "system"].includes(settings.theme)) {
+    throw new Error("テーマ設定が不正です。");
+  }
 
   if (
-    !Number.isInteger(value) ||
-    value < 1 ||
-    value > 1440
+    !Number.isFinite(settings.dailyTarget) ||
+    settings.dailyTarget < 0
   ) {
-    return {
-      success: false,
-      error: "1日の目標は1〜1440分で設定してください。",
-    };
+    throw new Error("1日の学習目標が不正です。");
   }
-
-  return setSetting("study.dailyGoalMinutes", value);
-}
-
-/**
- * 1週間の学習目標を変更する
- */
-export function setWeeklyStudyGoalMinutes(minutes) {
-  const value = Number(minutes);
 
   if (
-    !Number.isInteger(value) ||
-    value < 1 ||
-    value > 10080
+    !Number.isFinite(settings.weeklyTarget) ||
+    settings.weeklyTarget < 0
   ) {
-    return {
-      success: false,
-      error: "週間目標は1〜10080分で設定してください。",
-    };
+    throw new Error("1週間の学習目標が不正です。");
   }
 
-  return setSetting("study.weeklyGoalMinutes", value);
-}
-
-/**
- * 最低限の学習行動時間を変更する
- */
-export function setMinimumActionMinutes(minutes) {
-  const value = Number(minutes);
+  if (typeof settings.animations !== "boolean") {
+    throw new Error("アニメーション設定が不正です。");
+  }
 
   if (
-    !Number.isInteger(value) ||
-    value < 1 ||
-    value > 60
+    !["day", "week", "month"].includes(
+      settings.statistics.defaultPeriod
+    )
   ) {
-    return {
-      success: false,
-      error: "最低行動時間は1〜60分で設定してください。",
-    };
+    throw new Error("統計期間の設定が不正です。");
   }
-
-  return setSetting("study.minimumActionMinutes", value);
-}
-
-/* ---------------------------------------------------------
-   タイマー設定
-   --------------------------------------------------------- */
-
-/**
- * タイマーの初期時間を変更する
- */
-export function setDefaultTimerMinutes(minutes) {
-  const value = Number(minutes);
 
   if (
-    !Number.isInteger(value) ||
-    value < 1 ||
-    value > 180
+    !["subject", "item"].includes(
+      settings.statistics.chartGrouping
+    )
   ) {
-    return {
-      success: false,
-      error: "タイマーは1〜180分で設定してください。",
-    };
+    throw new Error("グラフの分類設定が不正です。");
   }
 
-  return setSetting("study.defaultTimerMinutes", value);
-}
-
-/**
- * タイマーの自動保存を変更する
- */
-export function setAutoSaveTimer(enabled) {
-  if (typeof enabled !== "boolean") {
-    return {
-      success: false,
-      error: "trueまたはfalseを指定してください。",
-    };
+  if (
+    ![0, 1, 6].includes(
+      settings.calendar.weekStartsOn
+    )
+  ) {
+    throw new Error("週の開始曜日の設定が不正です。");
   }
 
-  return setSetting("study.autoSaveTimer", enabled);
+  return true;
 }
 
-/**
- * タイマーの秒表示を変更する
- */
-export function setShowTimerSeconds(enabled) {
-  if (typeof enabled !== "boolean") {
-    return {
-      success: false,
-      error: "trueまたはfalseを指定してください。",
-    };
-  }
+/* =========================================================
+   テーマ設定
+   ========================================================= */
 
-  return setSetting("study.showTimerSeconds", enabled);
+export function getTheme() {
+  return getSetting("theme", "dark");
 }
 
-/* ---------------------------------------------------------
-   表示設定
-   --------------------------------------------------------- */
-
-/**
- * テーマを変更する
- *
- * cosmos：宇宙テーマ
- * dark：ダークテーマ
- * light：ライトテーマ
- */
 export function setTheme(theme) {
-  if (!["cosmos", "dark", "light"].includes(theme)) {
-    return {
-      success: false,
-      error: "指定されたテーマは使用できません。",
-    };
+  if (!["dark", "light", "system"].includes(theme)) {
+    throw new Error("利用できないテーマです。");
   }
 
-  return setSetting("appearance.theme", theme);
+  return setSetting("theme", theme);
 }
 
-/**
- * アニメーションの有効・無効を切り替える
- */
+/* =========================================================
+   学習目標設定
+   ========================================================= */
+
+export function getDailyTarget() {
+  return getSetting("dailyTarget", 60);
+}
+
+export function setDailyTarget(minutes) {
+  const value = Number(minutes);
+
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error("正しい1日の目標時間を指定してください。");
+  }
+
+  return setSetting("dailyTarget", value);
+}
+
+export function getWeeklyTarget() {
+  return getSetting("weeklyTarget", 420);
+}
+
+export function setWeeklyTarget(minutes) {
+  const value = Number(minutes);
+
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error("正しい1週間の目標時間を指定してください。");
+  }
+
+  return setSetting("weeklyTarget", value);
+}
+
+/* =========================================================
+   アニメーション設定
+   ========================================================= */
+
+export function areAnimationsEnabled() {
+  return getSetting("animations", true);
+}
+
 export function setAnimationsEnabled(enabled) {
-  if (typeof enabled !== "boolean") {
-    return {
-      success: false,
-      error: "trueまたはfalseを指定してください。",
-    };
-  }
-
-  return setSetting("appearance.animations", enabled);
+  return setSetting("animations", Boolean(enabled));
 }
 
-/**
- * コンパクト表示を変更する
- */
-export function setCompactMode(enabled) {
-  if (typeof enabled !== "boolean") {
-    return {
-      success: false,
-      error: "trueまたはfalseを指定してください。",
-    };
-  }
-
-  return setSetting("appearance.compactMode", enabled);
-}
-
-/**
- * 背景の星の表示を変更する
- */
-export function setStarsVisible(enabled) {
-  if (typeof enabled !== "boolean") {
-    return {
-      success: false,
-      error: "trueまたはfalseを指定してください。",
-    };
-  }
-
-  return setSetting("appearance.showStars", enabled);
-}
-
-/**
- * ホーム画面のカード表示を変更する
- */
-export function setHomeCardVisibility(cardName, visible) {
-  const allowedCards = [
-    "showDailyGoal",
-    "showNextEvent",
-    "showNextStudyItem",
-    "showRocket",
-    "showHabitList",
-    "showFinance",
-  ];
-
-  if (!allowedCards.includes(cardName)) {
-    return {
-      success: false,
-      error: "そのホーム画面項目は存在しません。",
-    };
-  }
-
-  if (typeof visible !== "boolean") {
-    return {
-      success: false,
-      error: "表示設定はtrueまたはfalseで指定してください。",
-    };
-  }
-
-  return setSetting(`home.${cardName}`, visible);
-}
-
-/* ---------------------------------------------------------
-   カレンダー設定
-   --------------------------------------------------------- */
-
-/**
- * 週の開始曜日を変更する
- *
- * true：月曜日
- * false：日曜日
- */
-export function setWeekStartsOnMonday(enabled) {
-  if (typeof enabled !== "boolean") {
-    return {
-      success: false,
-      error: "trueまたはfalseを指定してください。",
-    };
-  }
-
-  return setSetting(
-    "calendar.weekStartsOnMonday",
-    enabled
-  );
-}
-
-/**
- * カレンダーの初期表示を変更する
- */
-export function setCalendarDefaultView(view) {
-  if (!["month", "week", "day"].includes(view)) {
-    return {
-      success: false,
-      error: "表示方法はmonth・week・dayから選択してください。",
-    };
-  }
-
-  return setSetting("calendar.defaultView", view);
-}
-
-/* ---------------------------------------------------------
+/* =========================================================
    通知設定
-   --------------------------------------------------------- */
+   ========================================================= */
 
-/**
- * 通知全体の有効・無効を変更する
- *
- * この関数は設定の保存のみを行う。
- * 実際の通知処理は別途接続する必要がある。
- */
-export function setNotificationsEnabled(enabled) {
-  if (typeof enabled !== "boolean") {
-    return {
-      success: false,
-      error: "trueまたはfalseを指定してください。",
-    };
-  }
-
-  return setSetting("notifications.enabled", enabled);
+export function getNotificationSettings() {
+  return getSetting("notifications", {
+    enabled: false,
+    studyReminder: false,
+    calendarReminder: false,
+    goalReminder: false
+  });
 }
 
-/**
- * 学習リマインダーの設定を変更する
- */
-export function setStudyReminder(enabled, time) {
-  if (typeof enabled !== "boolean") {
-    return {
-      success: false,
-      error: "通知の有効・無効を指定してください。",
-    };
-  }
-
-  const settings = getSettings();
-
-  settings.notifications.studyReminder = enabled;
-
-  if (time !== undefined) {
-    const normalizedTime = normalizeTime(time, null);
-
-    if (normalizedTime === null) {
-      return {
-        success: false,
-        error: "通知時刻はHH:MM形式で指定してください。",
-      };
-    }
-
-    settings.notifications.studyReminderTime =
-      normalizedTime;
-  }
-
-  return saveSettings(settings);
-}
-
-/**
- * イベント通知の設定を変更する
- */
-export function setEventReminder(enabled, daysBefore) {
-  if (typeof enabled !== "boolean") {
-    return {
-      success: false,
-      error: "通知の有効・無効を指定してください。",
-    };
-  }
-
-  const settings = getSettings();
-
-  settings.notifications.eventReminder = enabled;
-
-  if (daysBefore !== undefined) {
-    const days = Number(daysBefore);
-
-    if (
-      !Number.isInteger(days) ||
-      days < 0 ||
-      days > 365
-    ) {
-      return {
-        success: false,
-        error: "通知する日数は0〜365日で指定してください。",
-      };
-    }
-
-    settings.notifications.countdownReminderDays = days;
-  }
-
-  return saveSettings(settings);
-}
-
-/* ---------------------------------------------------------
-   プライバシー設定
-   --------------------------------------------------------- */
-
-/**
- * 学習記録の共有設定を変更する
- *
- * この設定は保存されるだけであり、
- * 外部への送信処理を実行するものではない。
- */
-export function setStudyRecordSharing(enabled) {
-  if (typeof enabled !== "boolean") {
-    return {
-      success: false,
-      error: "trueまたはfalseを指定してください。",
-    };
-  }
-
-  return setSetting(
-    "privacy.shareStudyRecords",
-    enabled
-  );
-}
-
-/* ---------------------------------------------------------
-   設定の初期化
-   --------------------------------------------------------- */
-
-/**
- * 設定だけを初期状態に戻す
- *
- * 学習記録、カレンダー、目標、経済データは削除しない。
- */
-export function resetSettings() {
-  return saveSettings(
-    normalizeSettings(DEFAULT_SETTINGS)
-  );
-}
-
-/* ---------------------------------------------------------
-   変更通知
-   --------------------------------------------------------- */
-
-function notifySettingsChange() {
+export function setNotificationSettings(updates = {}) {
   if (
-    typeof window === "undefined" ||
-    typeof window.dispatchEvent !== "function" ||
-    typeof CustomEvent === "undefined"
+    !updates ||
+    typeof updates !== "object" ||
+    Array.isArray(updates)
   ) {
-    return;
+    throw new Error("通知設定が不正です。");
   }
 
-  window.dispatchEvent(
-    new CustomEvent("cosmos:settings-change", {
-      detail: {
-        settings: getSettings(),
-      },
-    })
+  const settings = getSettings();
+
+  settings.notifications = {
+    ...settings.notifications,
+    ...updates
+  };
+
+  for (const value of Object.values(settings.notifications)) {
+    if (typeof value !== "boolean") {
+      throw new Error("通知設定には真偽値を指定してください。");
+    }
+  }
+
+  saveData("settings", settings);
+
+  return settings.notifications;
+}
+
+/* =========================================================
+   統計設定
+   ========================================================= */
+
+export function getStatisticsSettings() {
+  return getSetting("statistics", {
+    defaultPeriod: "week",
+    chartGrouping: "subject"
+  });
+}
+
+export function setStatisticsSettings(updates = {}) {
+  const settings = getSettings();
+
+  settings.statistics = {
+    ...settings.statistics,
+    ...updates
+  };
+
+  validateSettings(settings);
+  saveData("settings", settings);
+
+  return settings.statistics;
+}
+
+/* =========================================================
+   カレンダー設定
+   ========================================================= */
+
+export function getCalendarSettings() {
+  return getSetting("calendar", {
+    weekStartsOn: 1,
+    showCompletedTasks: true
+  });
+}
+
+export function setCalendarSettings(updates = {}) {
+  const settings = getSettings();
+
+  settings.calendar = {
+    ...settings.calendar,
+    ...updates
+  };
+
+  validateSettings(settings);
+  saveData("settings", settings);
+
+  return settings.calendar;
+}
+
+/* =========================================================
+   表示設定
+   ========================================================= */
+
+export function getAppearanceSettings() {
+  return getSetting("appearance", {
+    compactMode: false,
+    showSeconds: true
+  });
+}
+
+export function setAppearanceSettings(updates = {}) {
+  const settings = getSettings();
+
+  settings.appearance = {
+    ...settings.appearance,
+    ...updates
+  };
+
+  if (
+    typeof settings.appearance.compactMode !== "boolean" ||
+    typeof settings.appearance.showSeconds !== "boolean"
+  ) {
+    throw new Error("表示設定が不正です。");
+  }
+
+  saveData("settings", settings);
+
+  return settings.appearance;
+}
+
+/* =========================================================
+   設定の初期化
+
+   既存設定がある場合は削除せず、
+   新しい設定項目だけを補完する。
+   ========================================================= */
+
+export function initializeSettings() {
+  const saved = loadData("settings", {});
+  const settings = mergeSettings(
+    cloneDefaults(),
+    saved
+  );
+
+  validateSettings(settings);
+  saveData("settings", settings);
+
+  return settings;
+}
+
+/* =========================================================
+   設定を初期値に戻す
+   ========================================================= */
+
+export function resetSettings() {
+  const defaults = cloneDefaults();
+
+  saveData("settings", defaults);
+
+  return defaults;
+}
+
+/* =========================================================
+   設定のエクスポート
+   ========================================================= */
+
+export function exportSettings() {
+  return JSON.stringify(
+    getSettings(),
+    null,
+    2
   );
 }
+
+/* =========================================================
+   設定のインポート
+   ========================================================= */
+
+export function importSettings(json) {
+  let parsed;
+
+  try {
+    parsed = typeof json === "string"
+      ? JSON.parse(json)
+      : json;
+  } catch {
+    throw new Error("設定データを読み取れません。");
+  }
+
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed)
+  ) {
+    throw new Error("設定データの形式が不正です。");
+  }
+
+  const settings = mergeSettings(
+    cloneDefaults(),
+    parsed
+  );
+
+  validateSettings(settings);
+  saveData("settings", settings);
+
+  return settings;
+}
+
+/* =========================================================
+   デフォルトエクスポート
+   ========================================================= */
+
+export default {
+  DEFAULT_SETTINGS,
+
+  getSettings,
+  saveSettings,
+  getSetting,
+  setSetting,
+  validateSettings,
+
+  getTheme,
+  setTheme,
+
+  getDailyTarget,
+  setDailyTarget,
+  getWeeklyTarget,
+  setWeeklyTarget,
+
+  areAnimationsEnabled,
+  setAnimationsEnabled,
+
+  getNotificationSettings,
+  setNotificationSettings,
+
+  getStatisticsSettings,
+  setStatisticsSettings,
+
+  getCalendarSettings,
+  setCalendarSettings,
+
+  getAppearanceSettings,
+  setAppearanceSettings,
+
+  initializeSettings,
+  resetSettings,
+
+  exportSettings,
+  importSettings
+};
