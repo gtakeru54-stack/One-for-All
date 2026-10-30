@@ -1,749 +1,874 @@
 
 /* =========================================================
-   ONE FOR ALL COSMOS
+   ALGOL — Study Constellation
    js/goals.js
 
-   目標マップ・スキルツリー管理
-   ・目標の追加 / 編集 / 削除
-   ・達成状態の管理
-   ・目標同士の接続
-   ・必要勉強時間 / 達成率
-   ・自動保存
+   目標星図・目標管理・習慣管理
+
+   主な仕様
+   ・目標を親子関係で管理
+   ・親目標の進捗率は子目標から算出
+   ・子目標が完了しても親目標は自動完了しない
+   ・目標の追加、編集、削除、並び替え
+   ・習慣の追加、編集、削除、実行記録
+   ・データは localStorage に保存
    ========================================================= */
 
 "use strict";
 
-import { store } from "./store.js";
-
-const STORAGE_VERSION = 1;
+import { loadData, saveData } from "./store.js";
 
 /* =========================================================
-   基本データ
+   保存キー
    ========================================================= */
 
-const DEFAULT_GOALS = [
-  {
-    id: "goal-root",
-    title: "自分の未来",
-    description: "自分が目指す未来に向けて進む",
-    category: "life",
-    parentId: null,
-    requiredMinutes: 0,
-    completed: false,
-    position: { x: 50, y: 8 },
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  },
-  {
-    id: "goal-study",
-    title: "学力を高める",
-    description: "毎日の学習を積み重ねる",
-    category: "study",
-    parentId: "goal-root",
-    requiredMinutes: 6000,
-    completed: false,
-    position: { x: 50, y: 30 },
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  },
-  {
-    id: "goal-habit",
-    title: "学習習慣を作る",
-    description: "毎日少しずつ勉強する",
-    category: "habit",
-    parentId: "goal-root",
-    requiredMinutes: 1800,
-    completed: false,
-    position: { x: 25, y: 30 },
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  },
-  {
-    id: "goal-future",
-    title: "志望校・将来の目標",
-    description: "自分の目標に向けて準備する",
-    category: "future",
-    parentId: "goal-study",
-    requiredMinutes: 12000,
-    completed: false,
-    position: { x: 75, y: 52 },
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  }
-];
+const STORAGE = {
+  goals: "goals",
+  habits: "habits"
+};
 
 /* =========================================================
-   内部ユーティリティ
+   共通関数
    ========================================================= */
 
-function createId() {
-  if (
-    typeof crypto !== "undefined" &&
-    typeof crypto.randomUUID === "function"
-  ) {
-    return crypto.randomUUID();
+function createId(prefix = "algol") {
+  if (globalThis.crypto?.randomUUID) {
+    return `${prefix}-${globalThis.crypto.randomUUID()}`;
   }
 
-  return (
-    "goal-" +
-    Date.now().toString(36) +
-    "-" +
-    Math.random().toString(36).slice(2, 10)
-  );
+  return `${prefix}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
 }
 
 function now() {
-  return Date.now();
+  return new Date().toISOString();
 }
 
-function normalizePosition(position) {
-  const x = Number(position?.x);
-  const y = Number(position?.y);
+function getDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
 
-  return {
-    x: Number.isFinite(x) ? Math.max(0, Math.min(100, x)) : 50,
-    y: Number.isFinite(y) ? Math.max(0, Math.min(100, y)) : 50
-  };
+  return `${year}-${month}-${day}`;
 }
 
-function normalizeGoal(goal) {
-  const timestamp = now();
+function clamp(value, min = 0, max = 100) {
+  const number = Number(value);
 
-  return {
-    id: String(goal.id || createId()),
-    title: String(goal.title || "新しい目標").trim(),
-    description: String(goal.description || ""),
-    category: String(goal.category || "general"),
-    parentId: goal.parentId ? String(goal.parentId) : null,
-    requiredMinutes: Math.max(
-      0,
-      Math.floor(Number(goal.requiredMinutes) || 0)
-    ),
-    completed: Boolean(goal.completed),
-    position: normalizePosition(goal.position),
-    createdAt: Number(goal.createdAt) || timestamp,
-    updatedAt: Number(goal.updatedAt) || timestamp,
-    color: String(goal.color || ""),
-    icon: String(goal.icon || "✦"),
-    order: Number.isFinite(Number(goal.order))
-      ? Number(goal.order)
-      : 0
-  };
+  if (!Number.isFinite(number)) {
+    return min;
+  }
+
+  return Math.min(max, Math.max(min, number));
 }
 
-function clone(value) {
-  return JSON.parse(JSON.stringify(value));
+function normalizeText(value) {
+  return String(value ?? "").trim();
+}
+
+function sortByOrder(items) {
+  return [...items].sort((a, b) => {
+    return (a.order ?? 0) - (b.order ?? 0);
+  });
 }
 
 /* =========================================================
-   保存データの読み込み
+   目標データ取得
    ========================================================= */
 
-function createDefaultData() {
-  return {
-    version: STORAGE_VERSION,
-    goals: clone(DEFAULT_GOALS),
-    selectedGoalId: "goal-study",
-    lastUpdated: now()
-  };
+export function getAllGoals() {
+  const goals = loadData(STORAGE.goals, []);
+
+  return Array.isArray(goals) ? goals : [];
 }
 
-function loadGoalData() {
-  let saved;
+export function getGoal(goalId) {
+  return getAllGoals().find(goal => goal.id === goalId) ?? null;
+}
 
-  try {
-    saved = store.goals.load(null);
-  } catch (error) {
-    console.error("[Goals] データ読み込みエラー:", error);
-    saved = null;
+export function getRootGoals() {
+  const goals = getAllGoals();
+
+  return sortByOrder(
+    goals.filter(goal => !goal.parentId)
+  );
+}
+
+export function getChildGoals(parentId) {
+  const goals = getAllGoals();
+
+  return sortByOrder(
+    goals.filter(goal => goal.parentId === parentId)
+  );
+}
+
+export function getGoalTree(rootId = null) {
+  const goals = getAllGoals();
+
+  function buildTree(parentId, ancestors = new Set()) {
+    return sortByOrder(
+      goals.filter(goal => (goal.parentId ?? null) === parentId)
+    ).map(goal => {
+      if (ancestors.has(goal.id)) {
+        return {
+          ...goal,
+          children: [],
+          hasCircularReference: true
+        };
+      }
+
+      const nextAncestors = new Set(ancestors);
+      nextAncestors.add(goal.id);
+
+      return {
+        ...goal,
+        children: buildTree(goal.id, nextAncestors)
+      };
+    });
   }
 
-  if (Array.isArray(saved)) {
-    return {
-      version: STORAGE_VERSION,
-      goals: saved.map(normalizeGoal),
-      selectedGoalId: saved[0]?.id || null,
-      lastUpdated: now()
-    };
+  if (rootId) {
+    const root = getGoal(rootId);
+
+    if (!root) {
+      return [];
+    }
+
+    return [{
+      ...root,
+      children: buildTree(root.id, new Set([root.id]))
+    }];
   }
 
-  if (!saved || typeof saved !== "object") {
-    return createDefaultData();
-  }
-
-  const goals = Array.isArray(saved.goals)
-    ? saved.goals.map(normalizeGoal)
-    : clone(DEFAULT_GOALS).map(normalizeGoal);
-
-  return {
-    version: STORAGE_VERSION,
-    goals,
-    selectedGoalId: saved.selectedGoalId || goals[0]?.id || null,
-    lastUpdated: Number(saved.lastUpdated) || now()
-  };
-}
-
-let data = loadGoalData();
-
-/* =========================================================
-   保存
-   ========================================================= */
-
-function saveGoalData() {
-  data.lastUpdated = now();
-
-  try {
-    return store.goals.save(data);
-  } catch (error) {
-    console.error("[Goals] データ保存エラー:", error);
-    return false;
-  }
-}
-
-/* =========================================================
-   目標取得
-   ========================================================= */
-
-function getGoals() {
-  return clone(data.goals);
-}
-
-function getGoal(goalId) {
-  const goal = data.goals.find(item => item.id === goalId);
-  return goal ? clone(goal) : null;
-}
-
-function getSelectedGoal() {
-  return getGoal(data.selectedGoalId);
-}
-
-function getSelectedGoalId() {
-  return data.selectedGoalId;
-}
-
-function selectGoal(goalId) {
-  const exists = data.goals.some(item => item.id === goalId);
-
-  if (!exists) {
-    return false;
-  }
-
-  data.selectedGoalId = goalId;
-  saveGoalData();
-
-  return true;
+  return buildTree(null);
 }
 
 /* =========================================================
-   目標の追加
+   目標追加
    ========================================================= */
 
-function addGoal(options = {}) {
-  const title = String(options.title || "").trim();
+export function addGoal(data = {}) {
+  const title = normalizeText(data.title);
 
   if (!title) {
-    return {
-      success: false,
-      message: "目標の名前を入力してください。"
-    };
+    throw new Error("目標名を入力してください。");
   }
 
-  const parentId = options.parentId || null;
+  const goals = getAllGoals();
 
-  if (
-    parentId &&
-    !data.goals.some(goal => goal.id === parentId)
-  ) {
-    return {
-      success: false,
-      message: "接続先の目標が見つかりません。"
-    };
+  const parentId = data.parentId || null;
+
+  if (parentId && !goals.some(goal => goal.id === parentId)) {
+    throw new Error("指定された親目標が見つかりません。");
   }
 
-  const goal = normalizeGoal({
-    ...options,
-    id: createId(),
+  const goal = {
+    id: createId("goal"),
     title,
+    description: normalizeText(data.description),
     parentId,
+    order: Number.isFinite(Number(data.order))
+      ? Number(data.order)
+      : goals.filter(item => item.parentId === parentId).length,
+
+    status: ["not_started", "in_progress", "completed"].includes(data.status)
+      ? data.status
+      : "not_started",
+
+    manualProgress: clamp(data.progress ?? 0),
+    deadline: data.deadline || null,
+    color: data.color || "#91aaff",
+
     createdAt: now(),
     updatedAt: now()
-  });
-
-  data.goals.push(goal);
-  data.selectedGoalId = goal.id;
-
-  const saved = saveGoalData();
-
-  return {
-    success: saved !== false,
-    message: saved === false
-      ? "目標を追加しましたが、保存に失敗しました。"
-      : "目標を追加しました。",
-    goal: clone(goal)
   };
+
+  goals.push(goal);
+  saveData(STORAGE.goals, goals);
+
+  return goal;
 }
 
 /* =========================================================
-   目標の編集
+   目標編集
    ========================================================= */
 
-function updateGoal(goalId, changes = {}) {
-  const index = data.goals.findIndex(goal => goal.id === goalId);
+export function updateGoal(goalId, updates = {}) {
+  const goals = getAllGoals();
+  const index = goals.findIndex(goal => goal.id === goalId);
 
   if (index === -1) {
-    return {
-      success: false,
-      message: "編集する目標が見つかりません。"
-    };
+    throw new Error("編集する目標が見つかりません。");
   }
 
-  const current = data.goals[index];
-  const nextTitle = changes.title === undefined
-    ? current.title
-    : String(changes.title).trim();
+  const current = goals[index];
+  const next = { ...current };
 
-  if (!nextTitle) {
-    return {
-      success: false,
-      message: "目標の名前を入力してください。"
-    };
-  }
+  if (updates.title !== undefined) {
+    const title = normalizeText(updates.title);
 
-  if (changes.parentId === goalId) {
-    return {
-      success: false,
-      message: "自分自身を接続先にはできません。"
-    };
-  }
-
-  const nextParentId = changes.parentId === undefined
-    ? current.parentId
-    : changes.parentId || null;
-
-  if (
-    nextParentId &&
-    !data.goals.some(goal => goal.id === nextParentId)
-  ) {
-    return {
-      success: false,
-      message: "接続先の目標が見つかりません。"
-    };
-  }
-
-  if (nextParentId && isDescendant(nextParentId, goalId)) {
-    return {
-      success: false,
-      message: "目標同士が循環する接続はできません。"
-    };
-  }
-
-  const allowed = [
-    "description",
-    "category",
-    "requiredMinutes",
-    "completed",
-    "position",
-    "color",
-    "icon",
-    "order"
-  ];
-
-  const updated = {
-    ...current,
-    title: nextTitle,
-    parentId: nextParentId,
-    updatedAt: now()
-  };
-
-  for (const key of allowed) {
-    if (changes[key] !== undefined) {
-      updated[key] = changes[key];
+    if (!title) {
+      throw new Error("目標名を入力してください。");
     }
+
+    next.title = title;
   }
 
-  const normalized = normalizeGoal(updated);
-  normalized.createdAt = current.createdAt;
-  normalized.updatedAt = now();
+  if (updates.description !== undefined) {
+    next.description = normalizeText(updates.description);
+  }
 
-  data.goals[index] = normalized;
+  if (updates.parentId !== undefined) {
+    const parentId = updates.parentId || null;
 
-  return {
-    success: saveGoalData() !== false,
-    message: "目標を更新しました。",
-    goal: clone(normalized)
-  };
+    if (parentId === goalId) {
+      throw new Error("自分自身を親目標には設定できません。");
+    }
+
+    if (parentId && !goals.some(goal => goal.id === parentId)) {
+      throw new Error("指定された親目標が見つかりません。");
+    }
+
+    if (parentId && isGoalDescendant(goalId, parentId)) {
+      throw new Error("子孫の目標を親目標には設定できません。");
+    }
+
+    next.parentId = parentId;
+  }
+
+  if (updates.order !== undefined) {
+    next.order = Number(updates.order) || 0;
+  }
+
+  if (updates.status !== undefined) {
+    if (!["not_started", "in_progress", "completed"].includes(updates.status)) {
+      throw new Error("指定された目標ステータスは使用できません。");
+    }
+
+    next.status = updates.status;
+  }
+
+  if (updates.progress !== undefined) {
+    next.manualProgress = clamp(updates.progress);
+  }
+
+  if (updates.deadline !== undefined) {
+    next.deadline = updates.deadline || null;
+  }
+
+  if (updates.color !== undefined) {
+    next.color = updates.color || "#91aaff";
+  }
+
+  next.updatedAt = now();
+
+  goals[index] = next;
+  saveData(STORAGE.goals, goals);
+
+  return next;
 }
 
 /* =========================================================
-   接続関係の確認
+   子孫関係の確認
    ========================================================= */
 
-function getChildren(goalId) {
-  return clone(
-    data.goals.filter(goal => goal.parentId === goalId)
-  );
-}
-
-function getParent(goalId) {
-  const goal = data.goals.find(item => item.id === goalId);
-
-  if (!goal || !goal.parentId) {
-    return null;
+export function isGoalDescendant(ancestorId, targetId) {
+  if (ancestorId === targetId) {
+    return true;
   }
 
-  return getGoal(goal.parentId);
-}
-
-function getRoots() {
-  return clone(data.goals.filter(goal => !goal.parentId));
-}
-
-function isDescendant(possibleDescendantId, ancestorId) {
-  let current = data.goals.find(
-    goal => goal.id === possibleDescendantId
-  );
-
+  const goals = getAllGoals();
   const visited = new Set();
 
-  while (current && current.parentId) {
-    if (current.parentId === ancestorId) {
-      return true;
+  function search(parentId) {
+    if (visited.has(parentId)) {
+      return false;
     }
 
-    if (visited.has(current.id)) {
-      return true;
-    }
+    visited.add(parentId);
 
-    visited.add(current.id);
-
-    current = data.goals.find(
-      goal => goal.id === current.parentId
+    const children = goals.filter(
+      goal => goal.parentId === parentId
     );
-  }
 
-  return false;
-}
+    for (const child of children) {
+      if (child.id === targetId) {
+        return true;
+      }
 
-function getDescendants(goalId) {
-  const result = [];
-  const queue = [goalId];
-  const visited = new Set([goalId]);
-
-  while (queue.length > 0) {
-    const currentId = queue.shift();
-
-    for (const child of data.goals) {
-      if (
-        child.parentId === currentId &&
-        !visited.has(child.id)
-      ) {
-        visited.add(child.id);
-        result.push(child);
-        queue.push(child.id);
+      if (search(child.id)) {
+        return true;
       }
     }
+
+    return false;
   }
 
-  return clone(result);
+  return search(ancestorId);
 }
 
 /* =========================================================
-   接続先の変更
+   目標の進捗率
    ========================================================= */
 
-function connectGoal(goalId, parentId) {
-  return updateGoal(goalId, { parentId: parentId || null });
-}
+/*
+  子目標がある場合：
+  子目標の進捗率の平均を親目標の進捗率とする。
 
-function disconnectGoal(goalId) {
-  return updateGoal(goalId, { parentId: null });
-}
+  子目標がない場合：
+  自分自身の manualProgress を使用する。
 
-/* =========================================================
-   達成状態
-   ========================================================= */
+  completed の場合は進捗率を100%として扱う。
 
-function setGoalCompleted(goalId, completed = true) {
-  return updateGoal(goalId, { completed: Boolean(completed) });
-}
+  重要：
+  この関数は進捗率を計算するだけ。
+  親目標の status は変更しない。
+*/
 
-function toggleGoalCompleted(goalId) {
-  const goal = data.goals.find(item => item.id === goalId);
+export function getGoalProgress(goalId, visited = new Set()) {
+  const goal = getGoal(goalId);
 
   if (!goal) {
-    return {
-      success: false,
-      message: "目標が見つかりません。"
-    };
+    return 0;
   }
 
-  return setGoalCompleted(goalId, !goal.completed);
+  if (goal.status === "completed") {
+    return 100;
+  }
+
+  if (visited.has(goalId)) {
+    return clamp(goal.manualProgress ?? 0);
+  }
+
+  const nextVisited = new Set(visited);
+  nextVisited.add(goalId);
+
+  const children = getChildGoals(goalId);
+
+  if (children.length === 0) {
+    return clamp(goal.manualProgress ?? 0);
+  }
+
+  const total = children.reduce((sum, child) => {
+    return sum + getGoalProgress(child.id, nextVisited);
+  }, 0);
+
+  return Math.round(total / children.length);
 }
 
-function getCompletionStats() {
-  const total = data.goals.length;
-  const completed = data.goals.filter(goal => goal.completed).length;
-
-  return {
-    total,
-    completed,
-    remaining: total - completed,
-    percentage: total === 0
-      ? 0
-      : Math.round((completed / total) * 100)
-  };
-}
-
-/* =========================================================
-   勉強時間と目標達成率
-   ========================================================= */
-
-function getStudyMinutesForGoal(goalId, studyMinutesByGoal = {}) {
-  const value = Number(studyMinutesByGoal[goalId]);
-  return Number.isFinite(value) ? Math.max(0, value) : 0;
-}
-
-function getGoalProgress(goalId, studyMinutesByGoal = {}) {
-  const goal = data.goals.find(item => item.id === goalId);
+export function getGoalProgressInfo(goalId) {
+  const goal = getGoal(goalId);
 
   if (!goal) {
     return null;
   }
 
-  const studiedMinutes = getStudyMinutesForGoal(
-    goalId,
-    studyMinutesByGoal
-  );
-
-  const requiredMinutes = goal.requiredMinutes;
-  const percentage = requiredMinutes <= 0
-    ? (goal.completed ? 100 : 0)
-    : Math.min(
-        100,
-        Math.round((studiedMinutes / requiredMinutes) * 100)
-      );
+  const children = getChildGoals(goalId);
+  const progress = getGoalProgress(goalId);
 
   return {
-    goalId,
+    id: goal.id,
     title: goal.title,
-    completed: goal.completed,
-    studiedMinutes,
-    requiredMinutes,
-    remainingMinutes: Math.max(
-      0,
-      requiredMinutes - studiedMinutes
-    ),
-    percentage
+    progress,
+    status: goal.status,
+    childCount: children.length,
+    completedChildren: children.filter(
+      child => child.status === "completed"
+    ).length,
+    isCompleted: goal.status === "completed"
   };
 }
 
-function getTotalRequiredMinutes() {
-  return data.goals.reduce(
-    (total, goal) => total + goal.requiredMinutes,
-    0
-  );
+/* =========================================================
+   目標ステータス
+   ========================================================= */
+
+export function setGoalStatus(goalId, status) {
+  if (!["not_started", "in_progress", "completed"].includes(status)) {
+    throw new Error("指定されたステータスは使用できません。");
+  }
+
+  return updateGoal(goalId, { status });
+}
+
+export function completeGoal(goalId) {
+  return setGoalStatus(goalId, "completed");
+}
+
+export function reopenGoal(goalId) {
+  return setGoalStatus(goalId, "in_progress");
 }
 
 /* =========================================================
    目標削除
    ========================================================= */
 
-function deleteGoal(goalId, options = {}) {
-  const goal = data.goals.find(item => item.id === goalId);
+export function deleteGoal(goalId, options = {}) {
+  const goals = getAllGoals();
+  const exists = goals.some(goal => goal.id === goalId);
 
-  if (!goal) {
-    return {
-      success: false,
-      message: "削除する目標が見つかりません。"
-    };
-  }
-
-  const descendants = getDescendants(goalId);
-  const deleteChildren = Boolean(options.deleteChildren);
-
-  if (descendants.length > 0 && !deleteChildren) {
-    // 子目標を削除せず、削除対象の親を外す
-    for (const child of data.goals) {
-      if (child.parentId === goalId) {
-        child.parentId = goal.parentId || null;
-        child.updatedAt = now();
-      }
-    }
-  }
-
-  const deleteIds = new Set([
-    goalId,
-    ...(deleteChildren
-      ? descendants.map(item => item.id)
-      : [])
-  ]);
-
-  data.goals = data.goals.filter(
-    item => !deleteIds.has(item.id)
-  );
-
-  if (deleteIds.has(data.selectedGoalId)) {
-    data.selectedGoalId = data.goals[0]?.id || null;
-  }
-
-  return {
-    success: saveGoalData() !== false,
-    message: "目標を削除しました。"
-  };
-}
-
-/* =========================================================
-   目標マップ用データ
-   ========================================================= */
-
-function getGoalMapData(studyMinutesByGoal = {}) {
-  const goals = data.goals.map(goal => {
-    const progress = getGoalProgress(
-      goal.id,
-      studyMinutesByGoal
-    );
-
-    return {
-      ...clone(goal),
-      progress
-    };
-  });
-
-  const links = data.goals
-    .filter(goal => goal.parentId)
-    .map(goal => ({
-      from: goal.parentId,
-      to: goal.id
-    }));
-
-  return {
-    goals,
-    links,
-    stats: getCompletionStats(),
-    selectedGoalId: data.selectedGoalId
-  };
-}
-
-/* =========================================================
-   検索
-   ========================================================= */
-
-function searchGoals(query) {
-  const keyword = String(query || "")
-    .trim()
-    .toLowerCase();
-
-  if (!keyword) {
-    return getGoals();
-  }
-
-  return clone(
-    data.goals.filter(goal =>
-      goal.title.toLowerCase().includes(keyword) ||
-      goal.description.toLowerCase().includes(keyword) ||
-      goal.category.toLowerCase().includes(keyword)
-    )
-  );
-}
-
-/* =========================================================
-   並び替え
-   ========================================================= */
-
-function reorderGoals(goalIds = []) {
-  if (!Array.isArray(goalIds)) {
+  if (!exists) {
     return false;
   }
 
-  const orderMap = new Map(
-    goalIds.map((id, index) => [id, index])
-  );
+  const deleteChildren = options.deleteChildren === true;
 
-  data.goals = data.goals.map(goal => ({
-    ...goal,
-    order: orderMap.has(goal.id)
-      ? orderMap.get(goal.id)
-      : goal.order
-  }));
+  if (deleteChildren) {
+    const idsToDelete = new Set([goalId]);
 
-  saveGoalData();
+    let changed = true;
+
+    while (changed) {
+      changed = false;
+
+      for (const goal of goals) {
+        if (
+          goal.parentId &&
+          idsToDelete.has(goal.parentId) &&
+          !idsToDelete.has(goal.id)
+        ) {
+          idsToDelete.add(goal.id);
+          changed = true;
+        }
+      }
+    }
+
+    saveData(
+      STORAGE.goals,
+      goals.filter(goal => !idsToDelete.has(goal.id))
+    );
+  } else {
+    const parent = getGoal(goalId);
+
+    const remaining = goals
+      .filter(goal => goal.id !== goalId)
+      .map(goal => {
+        if (goal.parentId === goalId) {
+          return {
+            ...goal,
+            parentId: parent?.parentId ?? null,
+            updatedAt: now()
+          };
+        }
+
+        return goal;
+      });
+
+    saveData(STORAGE.goals, remaining);
+  }
 
   return true;
 }
 
-function getSortedGoals() {
-  return clone(
-    [...data.goals].sort((a, b) => {
-      if (a.order !== b.order) {
-        return a.order - b.order;
-      }
+/* =========================================================
+   目標の並び替え
+   ========================================================= */
 
-      return a.createdAt - b.createdAt;
+export function reorderGoals(goalIds = []) {
+  if (!Array.isArray(goalIds)) {
+    throw new Error("目標IDの配列を指定してください。");
+  }
+
+  const goals = getAllGoals();
+  const orderMap = new Map(
+    goalIds.map((id, index) => [id, index])
+  );
+
+  const updated = goals.map(goal => {
+    if (!orderMap.has(goal.id)) {
+      return goal;
+    }
+
+    return {
+      ...goal,
+      order: orderMap.get(goal.id),
+      updatedAt: now()
+    };
+  });
+
+  saveData(STORAGE.goals, updated);
+
+  return sortByOrder(updated);
+}
+
+/* =========================================================
+   目標の集計
+   ========================================================= */
+
+export function getGoalSummary() {
+  const goals = getAllGoals();
+
+  const completed = goals.filter(
+    goal => goal.status === "completed"
+  ).length;
+
+  const inProgress = goals.filter(
+    goal => goal.status === "in_progress"
+  ).length;
+
+  const notStarted = goals.filter(
+    goal => goal.status === "not_started"
+  ).length;
+
+  const averageProgress = goals.length
+    ? Math.round(
+        goals.reduce(
+          (sum, goal) => sum + getGoalProgress(goal.id),
+          0
+        ) / goals.length
+      )
+    : 0;
+
+  return {
+    total: goals.length,
+    completed,
+    inProgress,
+    notStarted,
+    averageProgress
+  };
+}
+
+export function getUpcomingGoals(limit = 5) {
+  const today = getDateKey();
+
+  return getAllGoals()
+    .filter(goal => {
+      return (
+        goal.deadline &&
+        goal.deadline >= today &&
+        goal.status !== "completed"
+      );
     })
+    .sort((a, b) => {
+      return a.deadline.localeCompare(b.deadline);
+    })
+    .slice(0, Math.max(0, limit));
+}
+
+/* =========================================================
+   習慣管理
+   ========================================================= */
+
+export function getAllHabits() {
+  const habits = loadData(STORAGE.habits, []);
+
+  return Array.isArray(habits) ? habits : [];
+}
+
+export function getHabit(habitId) {
+  return getAllHabits().find(
+    habit => habit.id === habitId
+  ) ?? null;
+}
+
+export function addHabit(data = {}) {
+  const title = normalizeText(data.title);
+
+  if (!title) {
+    throw new Error("習慣名を入力してください。");
+  }
+
+  const habit = {
+    id: createId("habit"),
+    title,
+    description: normalizeText(data.description),
+
+    frequency: data.frequency === "weekly"
+      ? "weekly"
+      : "daily",
+
+    targetPerWeek: Math.max(
+      1,
+      Math.min(7, Number(data.targetPerWeek) || 3)
+    ),
+
+    logs: [],
+    color: data.color || "#72e1ed",
+    createdAt: now(),
+    updatedAt: now()
+  };
+
+  const habits = getAllHabits();
+  habits.push(habit);
+
+  saveData(STORAGE.habits, habits);
+
+  return habit;
+}
+
+export function updateHabit(habitId, updates = {}) {
+  const habits = getAllHabits();
+  const index = habits.findIndex(
+    habit => habit.id === habitId
+  );
+
+  if (index === -1) {
+    throw new Error("編集する習慣が見つかりません。");
+  }
+
+  const habit = { ...habits[index] };
+
+  if (updates.title !== undefined) {
+    const title = normalizeText(updates.title);
+
+    if (!title) {
+      throw new Error("習慣名を入力してください。");
+    }
+
+    habit.title = title;
+  }
+
+  if (updates.description !== undefined) {
+    habit.description = normalizeText(updates.description);
+  }
+
+  if (updates.frequency !== undefined) {
+    habit.frequency = updates.frequency === "weekly"
+      ? "weekly"
+      : "daily";
+  }
+
+  if (updates.targetPerWeek !== undefined) {
+    habit.targetPerWeek = Math.max(
+      1,
+      Math.min(7, Number(updates.targetPerWeek) || 1)
+    );
+  }
+
+  if (updates.color !== undefined) {
+    habit.color = updates.color || "#72e1ed";
+  }
+
+  habit.updatedAt = now();
+
+  habits[index] = habit;
+  saveData(STORAGE.habits, habits);
+
+  return habit;
+}
+
+/* =========================================================
+   習慣の実行記録
+   ========================================================= */
+
+export function recordHabit(habitId, date = getDateKey()) {
+  const habits = getAllHabits();
+  const index = habits.findIndex(
+    habit => habit.id === habitId
+  );
+
+  if (index === -1) {
+    throw new Error("記録する習慣が見つかりません。");
+  }
+
+  const habit = { ...habits[index] };
+  const logs = Array.isArray(habit.logs)
+    ? [...habit.logs]
+    : [];
+
+  if (!logs.includes(date)) {
+    logs.push(date);
+  }
+
+  habit.logs = logs.sort();
+  habit.updatedAt = now();
+
+  habits[index] = habit;
+  saveData(STORAGE.habits, habits);
+
+  return habit;
+}
+
+export function removeHabitRecord(habitId, date = getDateKey()) {
+  const habits = getAllHabits();
+  const index = habits.findIndex(
+    habit => habit.id === habitId
+  );
+
+  if (index === -1) {
+    return false;
+  }
+
+  const habit = { ...habits[index] };
+
+  habit.logs = (habit.logs || []).filter(
+    logDate => logDate !== date
+  );
+
+  habit.updatedAt = now();
+
+  habits[index] = habit;
+  saveData(STORAGE.habits, habits);
+
+  return true;
+}
+
+export function hasHabitRecord(habitId, date = getDateKey()) {
+  const habit = getHabit(habitId);
+
+  return Boolean(
+    habit &&
+    Array.isArray(habit.logs) &&
+    habit.logs.includes(date)
   );
 }
 
-/* =========================================================
-   初期化・リセット
-   ========================================================= */
+export function deleteHabit(habitId) {
+  const habits = getAllHabits();
+  const remaining = habits.filter(
+    habit => habit.id !== habitId
+  );
 
-function initializeGoals() {
-  data = loadGoalData();
-
-  if (data.goals.length === 0) {
-    data = createDefaultData();
-    saveGoalData();
+  if (remaining.length === habits.length) {
+    return false;
   }
 
-  return getGoals();
-}
+  saveData(STORAGE.habits, remaining);
 
-function resetGoals() {
-  data = createDefaultData();
-  saveGoalData();
-
-  return getGoals();
+  return true;
 }
 
 /* =========================================================
-   公開API
+   習慣の集計
    ========================================================= */
 
-export const goals = Object.freeze({
-  initializeGoals,
-  getGoals,
+export function getHabitStreak(habitId, fromDate = new Date()) {
+  const habit = getHabit(habitId);
+
+  if (!habit || !Array.isArray(habit.logs)) {
+    return 0;
+  }
+
+  const logSet = new Set(habit.logs);
+  const cursor = new Date(fromDate);
+  let streak = 0;
+
+  cursor.setHours(0, 0, 0, 0);
+
+  while (logSet.has(getDateKey(cursor))) {
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  return streak;
+}
+
+export function getHabitWeeklyCount(habitId, date = new Date()) {
+  const habit = getHabit(habitId);
+
+  if (!habit || !Array.isArray(habit.logs)) {
+    return 0;
+  }
+
+  const target = new Date(date);
+  target.setHours(0, 0, 0, 0);
+
+  const day = target.getDay();
+  target.setDate(target.getDate() - day);
+
+  const weekDates = [];
+
+  for (let i = 0; i < 7; i++) {
+    weekDates.push(getDateKey(target));
+    target.setDate(target.getDate() + 1);
+  }
+
+  const logSet = new Set(habit.logs);
+
+  return weekDates.filter(dateKey => logSet.has(dateKey)).length;
+}
+
+export function getHabitSummary(date = new Date()) {
+  const habits = getAllHabits();
+
+  const today = getDateKey(date);
+
+  const completedToday = habits.filter(habit => {
+    return Array.isArray(habit.logs) &&
+      habit.logs.includes(today);
+  }).length;
+
+  const weeklyCompleted = habits.filter(habit => {
+    const count = getHabitWeeklyCount(habit.id, date);
+
+    if (habit.frequency === "weekly") {
+      return count >= habit.targetPerWeek;
+    }
+
+    return count > 0;
+  }).length;
+
+  return {
+    total: habits.length,
+    completedToday,
+    weeklyCompleted,
+    remainingToday: Math.max(0, habits.length - completedToday)
+  };
+}
+
+/* =========================================================
+   初期データ
+   ========================================================= */
+
+export function initializeGoals() {
+  const goals = getAllGoals();
+  const habits = getAllHabits();
+
+  if (!Array.isArray(goals)) {
+    saveData(STORAGE.goals, []);
+  }
+
+  if (!Array.isArray(habits)) {
+    saveData(STORAGE.habits, []);
+  }
+
+  return {
+    goals: getAllGoals(),
+    habits: getAllHabits()
+  };
+}
+
+/* =========================================================
+   デフォルトエクスポート
+   ========================================================= */
+
+export default {
+  getAllGoals,
   getGoal,
-  getSelectedGoal,
-  getSelectedGoalId,
-  selectGoal,
+  getRootGoals,
+  getChildGoals,
+  getGoalTree,
 
   addGoal,
   updateGoal,
   deleteGoal,
-
-  getChildren,
-  getParent,
-  getRoots,
-  getDescendants,
-  isDescendant,
-
-  connectGoal,
-  disconnectGoal,
-
-  setGoalCompleted,
-  toggleGoalCompleted,
-  getCompletionStats,
-
-  getGoalProgress,
-  getTotalRequiredMinutes,
-
-  getGoalMapData,
-  searchGoals,
   reorderGoals,
-  getSortedGoals,
 
-  resetGoals,
-  save: saveGoalData
-});
+  isGoalDescendant,
+  getGoalProgress,
+  getGoalProgressInfo,
 
-export default goals;
+  setGoalStatus,
+  completeGoal,
+  reopenGoal,
+
+  getGoalSummary,
+  getUpcomingGoals,
+
+  getAllHabits,
+  getHabit,
+  addHabit,
+  updateHabit,
+  deleteHabit,
+
+  recordHabit,
+  removeHabitRecord,
+  hasHabitRecord,
+
+  getHabitStreak,
+  getHabitWeeklyCount,
+  getHabitSummary,
+
+  initializeGoals
+};
