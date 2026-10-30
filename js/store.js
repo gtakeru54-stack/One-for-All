@@ -1,467 +1,611 @@
-
 /* =========================================================
-   ONE FOR ALL COSMOS
+   ALGOL — STUDY CONSTELLATION
    js/store.js
 
    共通データ保存システム
-   ・学習記録
-   ・学習タイマー
-   ・カレンダー / タスク
-   ・目標マップ
-   ・ロケット進行状況
-   ・経済
-   ・カウントダウン
-   ・設定
 
-   注意：
-   既存の学習・タイマー・カレンダーの保存キーは維持する。
+   役割:
+   - localStorage管理
+   - 既存データの引き継ぎ
+   - データ形式のバージョン管理
+   - バックアップ・復元
+   - 保存エラーへの対応
+
+   注意:
+   - 既存データを勝手に削除しない
+   - 保存キーを勝手に変更しない
    ========================================================= */
 
-"use strict";
+const ALGOL_STORE_VERSION = 1;
 
-/* =========================================================
-   1. 保存キー
-   ========================================================= */
+const ALGOL_STORAGE_KEYS = Object.freeze({
+  subjects: "one-for-all-subjects-v1",
+  studyRecords: "one-for-all-study-records-v1",
+  studyItems: "one-for-all-study-items-v1",
+  goals: "one-for-all-goals-v1",
+  countdown: "one-for-all-countdown-v1",
+  settings: "one-for-all-settings-v1",
 
-export const STORE_KEYS = Object.freeze({
-  study: "oneforall-study-v1",
-  timer: "oneforall-timer-v1",
   calendar: "personal-calendar-v1",
+  tasks: "personal-tasks-v1",
 
-  goals: "oneforall-goals-v1",
-  rocket: "oneforall-rocket-v1",
-  economy: "oneforall-economy-v1",
-  countdown: "oneforall-countdown-v1",
-  settings: "oneforall-settings-v1"
+  meta: "algol-storage-meta-v1",
+  economy: "algol-economy-v1",
+  rocket: "algol-rocket-v1",
+  habits: "algol-habits-v1",
+  notifications: "algol-notifications-v1"
 });
 
 /* =========================================================
-   2. 保存領域へのアクセス
+   01. ERROR
+   ========================================================= */
+
+export class AlgolStoreError extends Error {
+  constructor(message, key = null, cause = null) {
+    super(message);
+
+    this.name = "AlgolStoreError";
+    this.key = key;
+    this.cause = cause;
+  }
+}
+
+/* =========================================================
+   02. STORAGE AVAILABILITY
    ========================================================= */
 
 function getStorage() {
   try {
     if (typeof localStorage === "undefined") {
-      return null;
+      throw new Error("localStorage is unavailable.");
     }
+
+    const testKey = "__algol_storage_test__";
+
+    localStorage.setItem(testKey, "ok");
+    localStorage.removeItem(testKey);
 
     return localStorage;
   } catch (error) {
-    console.error(
-      "[COSMOS Store] 保存領域にアクセスできません。",
+    throw new AlgolStoreError(
+      "端末の保存領域を利用できません。",
+      null,
       error
     );
-
-    return null;
   }
 }
 
 /* =========================================================
-   3. データの読み込み
+   03. JSON UTILITIES
    ========================================================= */
 
-/**
- * 保存データを読み込む。
- *
- * @param {string} key 保存キー
- * @param {*} fallback データがない場合の初期値
- * @returns {*} 読み込んだデータ
- */
-export function loadData(key, fallback = null) {
-  const storage = getStorage();
+function cloneData(value) {
+  if (value === undefined) {
+    return undefined;
+  }
 
-  if (!storage) {
-    return fallback;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function parseJSON(raw, fallback, key) {
+  if (raw === null || raw === undefined) {
+    return cloneData(fallback);
   }
 
   try {
-    const raw = storage.getItem(key);
-
-    if (raw === null) {
-      return fallback;
-    }
-
     return JSON.parse(raw);
   } catch (error) {
     console.error(
-      `[COSMOS Store] 読み込みに失敗しました: ${key}`,
+      `[ALGOL] JSON parse failed: ${key}`,
       error
     );
 
-    return fallback;
+    return cloneData(fallback);
   }
 }
 
 /* =========================================================
-   4. データの保存
+   04. DEFAULT DATA
    ========================================================= */
 
-/**
- * データを保存する。
- *
- * @param {string} key 保存キー
- * @param {*} value 保存するデータ
- * @returns {boolean} 保存できたか
- */
-export function saveData(key, value) {
-  const storage = getStorage();
-
-  if (!storage) {
-    return false;
-  }
-
-  try {
-    const serialized = JSON.stringify(value);
-
-    if (serialized === undefined) {
-      console.error(
-        `[COSMOS Store] 保存できないデータです: ${key}`
-      );
-
-      return false;
-    }
-
-    storage.setItem(key, serialized);
-
-    return true;
-  } catch (error) {
-    console.error(
-      `[COSMOS Store] 保存に失敗しました: ${key}`,
-      error
-    );
-
-    return false;
-  }
-}
-
-/* =========================================================
-   5. データの更新
-   ========================================================= */
-
-/**
- * 現在のデータを取得し、更新して保存する。
- *
- * @param {string} key 保存キー
- * @param {Function} updater 更新処理
- * @param {*} fallback データがない場合の初期値
- * @returns {*} 更新後のデータ
- */
-export function updateData(
-  key,
-  updater,
-  fallback = null
-) {
-  if (typeof updater !== "function") {
-    throw new TypeError(
-      "updateData の updater には関数を指定してください。"
-    );
-  }
-
-  const current = loadData(key, fallback);
-  const updated = updater(current);
-
-  if (updated === undefined) {
-    console.error(
-      `[COSMOS Store] 更新結果が undefined です: ${key}`
-    );
-
-    return current;
-  }
-
-  if (!saveData(key, updated)) {
-    return current;
-  }
-
-  return updated;
-}
-
-/* =========================================================
-   6. データの削除
-   ========================================================= */
-
-/**
- * 指定した保存キーのデータを削除する。
- *
- * 全データを一括削除する機能ではない。
- *
- * @param {string} key 保存キー
- * @returns {boolean} 削除できたか
- */
-export function removeData(key) {
-  const storage = getStorage();
-
-  if (!storage) {
-    return false;
-  }
-
-  try {
-    storage.removeItem(key);
-    return true;
-  } catch (error) {
-    console.error(
-      `[COSMOS Store] 削除に失敗しました: ${key}`,
-      error
-    );
-
-    return false;
-  }
-}
-
-/* =========================================================
-   7. 機能別の読み込み・保存
-   ========================================================= */
-
-export const store = Object.freeze({
-
-  /* 学習記録 */
-  study: {
-    load(fallback = {}) {
-      return loadData(STORE_KEYS.study, fallback);
-    },
-
-    save(data) {
-      return saveData(STORE_KEYS.study, data);
-    },
-
-    update(updater, fallback = {}) {
-      return updateData(
-        STORE_KEYS.study,
-        updater,
-        fallback
-      );
-    }
-  },
-
-  /* タイマー */
-  timer: {
-    load(fallback = {}) {
-      return loadData(STORE_KEYS.timer, fallback);
-    },
-
-    save(data) {
-      return saveData(STORE_KEYS.timer, data);
-    },
-
-    update(updater, fallback = {}) {
-      return updateData(
-        STORE_KEYS.timer,
-        updater,
-        fallback
-      );
-    }
-  },
-
-  /* カレンダー・予定・タスク */
-  calendar: {
-    load(fallback = {}) {
-      return loadData(STORE_KEYS.calendar, fallback);
-    },
-
-    save(data) {
-      return saveData(STORE_KEYS.calendar, data);
-    },
-
-    update(updater, fallback = {}) {
-      return updateData(
-        STORE_KEYS.calendar,
-        updater,
-        fallback
-      );
-    }
-  },
-
-  /* 目標マップ */
-  goals: {
-    load(fallback = {}) {
-      return loadData(STORE_KEYS.goals, fallback);
-    },
-
-    save(data) {
-      return saveData(STORE_KEYS.goals, data);
-    },
-
-    update(updater, fallback = {}) {
-      return updateData(
-        STORE_KEYS.goals,
-        updater,
-        fallback
-      );
-    }
-  },
-
-  /* ロケット・宇宙進行 */
-  rocket: {
-    load(fallback = {}) {
-      return loadData(STORE_KEYS.rocket, fallback);
-    },
-
-    save(data) {
-      return saveData(STORE_KEYS.rocket, data);
-    },
-
-    update(updater, fallback = {}) {
-      return updateData(
-        STORE_KEYS.rocket,
-        updater,
-        fallback
-      );
-    }
-  },
-
-  /* 経済 */
-  economy: {
-    load(fallback = {}) {
-      return loadData(STORE_KEYS.economy, fallback);
-    },
-
-    save(data) {
-      return saveData(STORE_KEYS.economy, data);
-    },
-
-    update(updater, fallback = {}) {
-      return updateData(
-        STORE_KEYS.economy,
-        updater,
-        fallback
-      );
-    }
-  },
-
-  /* カウントダウン */
-  countdown: {
-    load(fallback = []) {
-      return loadData(STORE_KEYS.countdown, fallback);
-    },
-
-    save(data) {
-      return saveData(STORE_KEYS.countdown, data);
-    },
-
-    update(updater, fallback = []) {
-      return updateData(
-        STORE_KEYS.countdown,
-        updater,
-        fallback
-      );
-    }
-  },
-
-  /* 設定 */
+export const ALGOL_DEFAULTS = Object.freeze({
+  subjects: [],
+  studyRecords: [],
+  studyItems: [],
+  goals: [],
+  countdown: [],
   settings: {
-    load(fallback = {}) {
-      return loadData(STORE_KEYS.settings, fallback);
-    },
-
-    save(data) {
-      return saveData(STORE_KEYS.settings, data);
-    },
-
-    update(updater, fallback = {}) {
-      return updateData(
-        STORE_KEYS.settings,
-        updater,
-        fallback
-      );
-    }
-  }
+    dailyTarget: 60,
+    weeklyTarget: 420,
+    theme: "dark",
+    animations: true
+  },
+  calendar: [],
+  tasks: [],
+  economy: {
+    balance: 0,
+    transactions: [],
+    loans: []
+  },
+  rocket: {
+    experience: 0,
+    level: 1,
+    parts: [],
+    missions: [],
+    exploration: []
+  },
+  habits: [],
+  notifications: []
 });
 
 /* =========================================================
-   8. 保存データの確認
+   05. KEY VALIDATION
    ========================================================= */
 
-/**
- * 各機能の保存データが存在するか確認する。
- * データの変更や削除は行わない。
- *
- * @returns {Object} 保存状況
- */
-export function getStorageStatus() {
-  const storage = getStorage();
-  const result = {};
+function getKey(name) {
+  const key = ALGOL_STORAGE_KEYS[name];
 
-  for (const [name, key] of Object.entries(STORE_KEYS)) {
-    if (!storage) {
-      result[name] = false;
+  if (!key) {
+    throw new AlgolStoreError(
+      `不明な保存項目です: ${name}`
+    );
+  }
+
+  return key;
+}
+
+/* =========================================================
+   06. READ
+   ========================================================= */
+
+export function loadData(name, fallback = undefined) {
+  const storage = getStorage();
+  const key = getKey(name);
+
+  const defaultValue =
+    fallback !== undefined
+      ? fallback
+      : ALGOL_DEFAULTS[name];
+
+  const raw = storage.getItem(key);
+
+  return parseJSON(raw, defaultValue, key);
+}
+
+/* =========================================================
+   07. SAVE
+   ========================================================= */
+
+export function saveData(name, value) {
+  const storage = getStorage();
+  const key = getKey(name);
+
+  if (value === undefined) {
+    throw new AlgolStoreError(
+      "undefinedは保存できません。",
+      key
+    );
+  }
+
+  let serialized;
+
+  try {
+    serialized = JSON.stringify(value);
+  } catch (error) {
+    throw new AlgolStoreError(
+      "データをJSONに変換できませんでした。",
+      key,
+      error
+    );
+  }
+
+  if (serialized === undefined) {
+    throw new AlgolStoreError(
+      "保存可能なデータではありません。",
+      key
+    );
+  }
+
+  try {
+    storage.setItem(key, serialized);
+    return true;
+  } catch (error) {
+    console.error(
+      `[ALGOL] Save failed: ${name}`,
+      error
+    );
+
+    throw new AlgolStoreError(
+      "データを保存できませんでした。端末の空き容量を確認してください。",
+      key,
+      error
+    );
+  }
+}
+
+/* =========================================================
+   08. UPDATE
+   ========================================================= */
+
+export function updateData(name, updater, fallback = undefined) {
+  if (typeof updater !== "function") {
+    throw new AlgolStoreError(
+      "更新処理には関数を指定してください。"
+    );
+  }
+
+  const current = loadData(name, fallback);
+  const next = updater(cloneData(current));
+
+  if (next === undefined) {
+    throw new AlgolStoreError(
+      "更新結果がundefinedになりました。",
+      getKey(name)
+    );
+  }
+
+  saveData(name, next);
+
+  return next;
+}
+
+/* =========================================================
+   09. REMOVE
+   ========================================================= */
+
+export function removeData(name) {
+  const storage = getStorage();
+  const key = getKey(name);
+
+  storage.removeItem(key);
+
+  return true;
+}
+
+/* =========================================================
+   10. CHECK
+   ========================================================= */
+
+export function hasData(name) {
+  const storage = getStorage();
+  const key = getKey(name);
+
+  return storage.getItem(key) !== null;
+}
+
+/* =========================================================
+   11. STORAGE META
+   ========================================================= */
+
+function loadMeta() {
+  const storage = getStorage();
+
+  return parseJSON(
+    storage.getItem(ALGOL_STORAGE_KEYS.meta),
+    {
+      version: ALGOL_STORE_VERSION,
+      createdAt: null,
+      updatedAt: null
+    },
+    ALGOL_STORAGE_KEYS.meta
+  );
+}
+
+function saveMeta(meta) {
+  const storage = getStorage();
+
+  storage.setItem(
+    ALGOL_STORAGE_KEYS.meta,
+    JSON.stringify(meta)
+  );
+}
+
+/* =========================================================
+   12. INITIALIZATION
+   ========================================================= */
+
+export function initializeStore() {
+  const storage = getStorage();
+  const meta = loadMeta();
+
+  /*
+   * 既存データを確認する。
+   * データが存在する場合は上書きしない。
+   */
+
+  for (const name of Object.keys(ALGOL_DEFAULTS)) {
+    const key = ALGOL_STORAGE_KEYS[name];
+
+    if (!key) {
       continue;
     }
 
-    try {
-      result[name] = storage.getItem(key) !== null;
-    } catch {
-      result[name] = false;
+    if (storage.getItem(key) === null) {
+      storage.setItem(
+        key,
+        JSON.stringify(cloneData(ALGOL_DEFAULTS[name]))
+      );
     }
+  }
+
+  const now = new Date().toISOString();
+
+  saveMeta({
+    ...meta,
+    version: ALGOL_STORE_VERSION,
+    createdAt: meta.createdAt || now,
+    updatedAt: now
+  });
+
+  return true;
+}
+
+/* =========================================================
+   13. BACKUP
+   ========================================================= */
+
+export function createBackup() {
+  const storage = getStorage();
+
+  const data = {};
+
+  for (const [name, key] of Object.entries(ALGOL_STORAGE_KEYS)) {
+    const raw = storage.getItem(key);
+
+    if (raw === null) {
+      continue;
+    }
+
+    data[name] = parseJSON(raw, null, key);
+  }
+
+  return {
+    application: "ALGOL",
+    format: "algol-backup",
+    version: ALGOL_STORE_VERSION,
+    exportedAt: new Date().toISOString(),
+    data
+  };
+}
+
+/* =========================================================
+   14. BACKUP DOWNLOAD
+   ========================================================= */
+
+export function downloadBackup() {
+  const backup = createBackup();
+
+  const blob = new Blob(
+    [JSON.stringify(backup, null, 2)],
+    {
+      type: "application/json"
+    }
+  );
+
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+
+  const date = new Date()
+    .toISOString()
+    .slice(0, 10);
+
+  link.href = url;
+  link.download = `ALGOL-backup-${date}.json`;
+
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  URL.revokeObjectURL(url);
+
+  return true;
+}
+
+/* =========================================================
+   15. BACKUP VALIDATION
+   ========================================================= */
+
+export function validateBackup(backup) {
+  if (!backup || typeof backup !== "object") {
+    return false;
+  }
+
+  if (backup.application !== "ALGOL") {
+    return false;
+  }
+
+  if (backup.format !== "algol-backup") {
+    return false;
+  }
+
+  if (!backup.data || typeof backup.data !== "object") {
+    return false;
+  }
+
+  return true;
+}
+
+/* =========================================================
+   16. RESTORE
+   ========================================================= */
+
+export function restoreBackup(backup) {
+  if (!validateBackup(backup)) {
+    throw new AlgolStoreError(
+      "ALGOLのバックアップ形式ではありません。"
+    );
+  }
+
+  const storage = getStorage();
+
+  /*
+   * 復元前に現在のデータを退避する。
+   * 復元中に失敗した場合に元へ戻せるようにする。
+   */
+
+  const previous = {};
+
+  for (const [name, key] of Object.entries(ALGOL_STORAGE_KEYS)) {
+    previous[name] = storage.getItem(key);
+  }
+
+  try {
+    for (const [name, key] of Object.entries(ALGOL_STORAGE_KEYS)) {
+      if (
+        name === "meta" ||
+        !Object.prototype.hasOwnProperty.call(
+          backup.data,
+          name
+        )
+      ) {
+        continue;
+      }
+
+      const serialized = JSON.stringify(
+        backup.data[name]
+      );
+
+      if (serialized === undefined) {
+        throw new Error(
+          `Invalid backup data: ${name}`
+        );
+      }
+
+      storage.setItem(key, serialized);
+    }
+
+    const meta = loadMeta();
+
+    saveMeta({
+      ...meta,
+      version: ALGOL_STORE_VERSION,
+      updatedAt: new Date().toISOString()
+    });
+
+    return true;
+  } catch (error) {
+    /*
+     * 復元失敗時は復元前の状態へ戻す。
+     */
+
+    for (const [name, key] of Object.entries(ALGOL_STORAGE_KEYS)) {
+      const oldValue = previous[name];
+
+      if (oldValue === null || oldValue === undefined) {
+        storage.removeItem(key);
+      } else {
+        storage.setItem(key, oldValue);
+      }
+    }
+
+    throw new AlgolStoreError(
+      "バックアップの復元に失敗しました。元のデータに戻しました。",
+      null,
+      error
+    );
+  }
+}
+
+/* =========================================================
+   17. BACKUP FILE READER
+   ========================================================= */
+
+export function readBackupFile(file) {
+  return new Promise((resolve, reject) => {
+    if (!(file instanceof File)) {
+      reject(
+        new AlgolStoreError(
+          "バックアップファイルを選択してください。"
+        )
+      );
+
+      return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      try {
+        const backup = JSON.parse(reader.result);
+
+        if (!validateBackup(backup)) {
+          throw new Error(
+            "バックアップ形式が正しくありません。"
+          );
+        }
+
+        resolve(backup);
+      } catch (error) {
+        reject(
+          new AlgolStoreError(
+            "バックアップファイルを読み込めませんでした。",
+            null,
+            error
+          )
+        );
+      }
+    };
+
+    reader.onerror = () => {
+      reject(
+        new AlgolStoreError(
+          "ファイルの読み込みに失敗しました。"
+        )
+      );
+    };
+
+    reader.readAsText(file);
+  });
+}
+
+/* =========================================================
+   18. STORAGE INFORMATION
+   ========================================================= */
+
+export function getStorageInfo() {
+  const storage = getStorage();
+
+  const result = {};
+
+  for (const [name, key] of Object.entries(ALGOL_STORAGE_KEYS)) {
+    const raw = storage.getItem(key);
+
+    result[name] = {
+      exists: raw !== null,
+      characters: raw ? raw.length : 0
+    };
   }
 
   return result;
 }
 
 /* =========================================================
-   9. 保存データの容量確認
+   19. EXPORT DEFAULT
    ========================================================= */
 
-/**
- * このアプリの保存データのおおよその文字数を調べる。
- *
- * @returns {number} 保存データの文字数
- */
-export function getStorageUsage() {
-  const storage = getStorage();
+export default {
+  version: ALGOL_STORE_VERSION,
+  keys: ALGOL_STORAGE_KEYS,
+  defaults: ALGOL_DEFAULTS,
 
-  if (!storage) {
-    return 0;
-  }
+  initializeStore,
 
-  let total = 0;
+  loadData,
+  saveData,
+  updateData,
+  removeData,
+  hasData,
 
-  for (const key of Object.values(STORE_KEYS)) {
-    try {
-      const value = storage.getItem(key);
+  createBackup,
+  downloadBackup,
+  validateBackup,
+  restoreBackup,
+  readBackupFile,
 
-      if (value !== null) {
-        total += key.length + value.length;
-      }
-    } catch (error) {
-      console.warn(
-        `[COSMOS Store] 容量確認に失敗しました: ${key}`,
-        error
-      );
-    }
-  }
-
-  return total;
-}
+  getStorageInfo
+};
 
 /* =========================================================
-   10. 既存コードとの共存
+   END OF ALGOL STORE
    ========================================================= */
-
-/*
-  このファイルは保存処理の共通土台です。
-
-  重要：
-  ・既存データを自動削除しない。
-  ・既存の保存キーを変更しない。
-  ・保存データの形式を勝手に書き換えない。
-  ・既存の学習記録や予定を初期化しない。
-  ・日利や返済期限などの経済ルールはここでは処理しない。
-
-  各機能のファイルから必要な関数を import して使用します。
-
-  使用例：
-
-  import { store } from "./store.js";
-
-  const data = store.study.load({});
-
-  store.study.save(data);
-
-  経済データの例：
-
-  const economyData = store.economy.load({});
-
-  store.economy.save(economyData);
-
-  ※このファイルを作成しただけでは、既存機能との接続は
-    完了していません。次の実装で各ファイルを接続します。
-*/
