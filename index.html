@@ -4,32 +4,74 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>One-for-All</title>
-    <meta name="description" content="予定と実績を比べて振り返れる学習管理アプリ" />
+    <meta name="description" content="学習予定と実績を管理するアプリ" />
     <link rel="stylesheet" href="./css/style.css" />
   </head>
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <div>
+        <button id="menuToggle" class="icon-button" type="button" aria-label="メニューを開く">☰</button>
+        <div class="topbar-title-wrap">
           <p class="eyebrow">One-for-All</p>
-          <h1>学習と予定の管理</h1>
+          <h1>学習管理</h1>
         </div>
       </header>
 
-      <main class="layout">
-        <aside class="sidebar">
-          <nav class="nav" aria-label="メニュー">
-            <button class="nav-item active" type="button">日程</button>
-            <button class="nav-item" type="button">勉強タイマー</button>
-            <button class="nav-item" type="button">記録</button>
-            <button class="nav-item" type="button">目標</button>
-            <button class="nav-item" type="button">ロケット</button>
-            <button class="nav-item" type="button">振り返り</button>
-            <button class="nav-item" type="button">今日</button>
-          </nav>
-        </aside>
+      <aside id="sideMenu" class="side-menu" aria-label="メニュー" aria-hidden="true">
+        <div class="side-menu-header">
+          <h2>メニュー</h2>
+          <button id="menuClose" class="icon-button" type="button" aria-label="閉じる">✕</button>
+        </div>
 
-        <section class="content">
+        <nav class="side-nav" aria-label="主要メニュー">
+          <button class="side-nav-item active" type="button" data-page="today">今日</button>
+          <button class="side-nav-item" type="button" data-page="schedule">日程</button>
+          <button class="side-nav-item" type="button" data-page="timer">勉強タイマー</button>
+          <button class="side-nav-item" type="button" data-page="records">記録</button>
+          <button class="side-nav-item" type="button" data-page="goals">目標</button>
+          <button class="side-nav-item" type="button" data-page="rocket">ロケット</button>
+          <button class="side-nav-item" type="button" data-page="review">振り返り</button>
+          <button class="side-nav-item" type="button" data-page="settings">設定</button>
+        </nav>
+      </aside>
+
+      <div id="menuBackdrop" class="menu-backdrop" hidden></div>
+
+      <main class="content">
+        <section id="page-today" class="page active" data-page-section>
+          <div class="panel">
+            <div class="section-head">
+              <h2>今日</h2>
+            </div>
+            <div class="stats-grid">
+              <div class="stat-box">
+                <span>予定</span>
+                <strong id="todayPlanMinutes">0分</strong>
+              </div>
+              <div class="stat-box">
+                <span>実績</span>
+                <strong id="todayActualMinutes">0分</strong>
+              </div>
+              <div class="stat-box">
+                <span>達成率</span>
+                <strong id="todayProgressRate">0%</strong>
+              </div>
+            </div>
+            <p id="todayMessage" class="muted-text">今日の一歩を始めましょう。</p>
+          </div>
+
+          <div class="panel">
+            <h3>今日の予定</h3>
+            <ul id="todayPlanList" class="item-list"></ul>
+          </div>
+
+          <div class="panel">
+            <h3>今日の実績</h3>
+            <ul id="todayLogList" class="item-list"></ul>
+          </div>
+        </section>
+
+        <section id="page-schedule" class="page" data-page-section hidden>
           <div class="panel calendar-panel">
             <div class="calendar-toolbar">
               <button id="prevMonth" class="icon-button" type="button" aria-label="前の月">‹</button>
@@ -37,7 +79,7 @@
               <button id="nextMonth" class="icon-button" type="button" aria-label="次の月">›</button>
             </div>
 
-            <div class="weekday-row" aria-label="曜日">
+            <div class="weekday-row">
               <span class="weekday sun">日</span>
               <span class="weekday">月</span>
               <span class="weekday">火</span>
@@ -50,13 +92,13 @@
             <div id="calendarGrid" class="calendar-grid" aria-live="polite"></div>
           </div>
 
-          <div class="panel summary-panel">
+          <div class="panel">
             <div class="section-head">
               <h2 id="selectedDateLabel">2026-11-01</h2>
               <span id="summaryBadge" class="badge">予定どおり</span>
             </div>
 
-            <div class="stats-grid">
+            <div class="stats-grid compact-grid">
               <div class="stat-box">
                 <span>予定</span>
                 <strong id="plannedMinutes">0分</strong>
@@ -71,133 +113,184 @@
               </div>
             </div>
 
-            <p id="reflectionText" class="reflection-text">今日は良い一日になる予定です。</p>
+            <p id="reflectionText" class="muted-text">予定と実績を比べて振り返りましょう。</p>
           </div>
 
-          <div class="feature-row">
-            <div class="panel mini-panel">
-              <h3>勉強タイマー</h3>
-              <div class="timer-display">00:25:00</div>
-              <p class="mini-note">今日の学習時間を記録します。</p>
+          <div class="two-column">
+            <div class="panel">
+              <h3>予定を追加</h3>
+              <form id="planForm">
+                <label>
+                  <span>タイトル</span>
+                  <input id="planTitle" name="title" type="text" placeholder="例: 英文法を3問解く" required />
+                </label>
+
+                <label>
+                  <span>日付</span>
+                  <input id="planDate" name="date" type="date" required />
+                </label>
+
+                <div class="two-small">
+                  <label>
+                    <span>開始</span>
+                    <input id="planStart" name="start" type="time" />
+                  </label>
+                  <label>
+                    <span>終了</span>
+                    <input id="planEnd" name="end" type="time" />
+                  </label>
+                </div>
+
+                <label>
+                  <span>予定時間（分）</span>
+                  <input id="planMinutes" name="minutes" type="number" min="1" step="5" placeholder="30" required />
+                </label>
+
+                <label>
+                  <span>カテゴリ</span>
+                  <select id="planCategory" name="category">
+                    <option value="勉強">勉強</option>
+                    <option value="学校">学校</option>
+                    <option value="部活">部活</option>
+                    <option value="私用">私用</option>
+                    <option value="休息">休息</option>
+                  </select>
+                </label>
+
+                <label>
+                  <span>メモ</span>
+                  <textarea id="planMemo" name="memo" rows="3" placeholder="メモ"></textarea>
+                </label>
+
+                <button class="primary-button" type="submit">予定を保存</button>
+              </form>
             </div>
 
-            <div class="panel mini-panel">
-              <h3>学習記録</h3>
-              <ul class="mini-list">
-                <li>英語 30分</li>
-                <li>数学 40分</li>
-                <li>プログラミング 55分</li>
-              </ul>
-            </div>
+            <div class="panel">
+              <h3>実績を記録</h3>
+              <form id="logForm">
+                <label>
+                  <span>日付</span>
+                  <input id="logDate" name="date" type="date" required />
+                </label>
 
-            <div class="panel mini-panel">
-              <h3>目標</h3>
-              <div class="goal-ring">75%</div>
-              <p class="mini-note">今週の目標達成率</p>
-            </div>
+                <label>
+                  <span>やったこと</span>
+                  <input id="logTitle" name="title" type="text" placeholder="例: プログラミングの復習" required />
+                </label>
 
-            <div class="panel mini-panel">
-              <h3>ロケット</h3>
-              <div class="rocket-icon">🚀</div>
-              <p class="mini-note">レベル 3</p>
-            </div>
-          </div>
+                <label>
+                  <span>実際の時間（分）</span>
+                  <input id="logMinutes" name="minutes" type="number" min="1" step="5" placeholder="45" required />
+                </label>
 
-          <div class="panel form-panel">
-            <div class="two-column">
-              <div class="card">
-                <h3>予定を追加</h3>
-                <form id="planForm">
-                  <label>
-                    <span>タイトル</span>
-                    <input id="planTitle" name="title" type="text" placeholder="例: 英文法を3問解く" required />
-                  </label>
+                <label>
+                  <span>感想・メモ</span>
+                  <textarea id="logMemo" name="memo" rows="4" placeholder="どうだった？"></textarea>
+                </label>
 
-                  <label>
-                    <span>日付</span>
-                    <input id="planDate" name="date" type="date" required />
-                  </label>
-
-                  <div class="inline-fields">
-                    <label>
-                      <span>開始</span>
-                      <input id="planStart" name="start" type="time" />
-                    </label>
-                    <label>
-                      <span>終了</span>
-                      <input id="planEnd" name="end" type="time" />
-                    </label>
-                  </div>
-
-                  <label>
-                    <span>予定時間（分）</span>
-                    <input id="planMinutes" name="minutes" type="number" min="1" step="5" placeholder="30" required />
-                  </label>
-
-                  <label>
-                    <span>カテゴリ</span>
-                    <select id="planCategory" name="category">
-                      <option value="勉強">勉強</option>
-                      <option value="学校">学校</option>
-                      <option value="部活">部活</option>
-                      <option value="私用">私用</option>
-                      <option value="休息">休息</option>
-                    </select>
-                  </label>
-
-                  <label>
-                    <span>メモ</span>
-                    <textarea id="planMemo" name="memo" rows="3" placeholder="何をする予定かをメモに残します"></textarea>
-                  </label>
-
-                  <button class="primary-button" type="submit">予定を保存</button>
-                </form>
-              </div>
-
-              <div class="card">
-                <h3>実績を記録</h3>
-                <form id="logForm">
-                  <label>
-                    <span>日付</span>
-                    <input id="logDate" name="date" type="date" required />
-                  </label>
-
-                  <label>
-                    <span>やったこと</span>
-                    <input id="logTitle" name="title" type="text" placeholder="例: プログラミングの復習" required />
-                  </label>
-
-                  <label>
-                    <span>実際の時間（分）</span>
-                    <input id="logMinutes" name="minutes" type="number" min="1" step="5" placeholder="45" required />
-                  </label>
-
-                  <label>
-                    <span>感想・メモ</span>
-                    <textarea id="logMemo" name="memo" rows="4" placeholder="どんな感じだった？"></textarea>
-                  </label>
-
-                  <button class="primary-button" type="submit">実績を保存</button>
-                </form>
-              </div>
+                <button class="primary-button" type="submit">実績を保存</button>
+              </form>
             </div>
           </div>
 
-          <div class="panel list-panel">
-            <div class="two-column">
-              <div class="card">
-                <h3>この日の予定</h3>
-                <ul id="planList" class="item-list"></ul>
-              </div>
+          <div class="two-column">
+            <div class="panel">
+              <h3>この日の予定</h3>
+              <ul id="planList" class="item-list"></ul>
+            </div>
 
-              <div class="card">
-                <h3>この日の実績</h3>
-                <ul id="logList" class="item-list"></ul>
+            <div class="panel">
+              <h3>この日の実績</h3>
+              <ul id="logList" class="item-list"></ul>
+            </div>
+          </div>
+        </section>
+
+        <section id="page-timer" class="page" data-page-section hidden>
+          <div class="panel">
+            <h2>勉強タイマー</h2>
+            <div class="timer-display" id="timerDisplay">00:00:00</div>
+            <p id="timerStatus" class="muted-text">停止中</p>
+            <div class="button-row">
+              <button class="primary-button" type="button" id="timerStart">開始</button>
+              <button class="secondary-button" type="button" id="timerPause">一時停止</button>
+              <button class="secondary-button" type="button" id="timerReset">リセット</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="page-records" class="page" data-page-section hidden>
+          <div class="panel">
+            <h2>記録</h2>
+            <div id="recordList" class="item-list"></div>
+          </div>
+        </section>
+
+        <section id="page-goals" class="page" data-page-section hidden>
+          <div class="panel">
+            <h2>目標</h2>
+            <div class="goal-ring" id="goalProgressRing"><span>75%</span></div>
+            <p class="muted-text">今週の目標達成率</p>
+            <ul id="goalList" class="item-list"></ul>
+          </div>
+        </section>
+
+        <section id="page-rocket" class="page" data-page-section hidden>
+          <div class="panel">
+            <h2>ロケット</h2>
+            <div class="rocket-panel">
+              <div class="rocket-emoji">🚀</div>
+              <div>
+                <strong id="rocketLevelText">レベル 3</strong>
+                <p class="muted-text">次のレベルまであと 25%</p>
               </div>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill" id="rocketProgress" style="width: 75%"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="page-review" class="page" data-page-section hidden>
+          <div class="panel">
+            <h2>振り返り</h2>
+            <div class="stats-grid review-grid">
+              <div class="stat-box">
+                <span>総予定</span>
+                <strong id="reviewPlanTotal">0分</strong>
+              </div>
+              <div class="stat-box">
+                <span>総実績</span>
+                <strong id="reviewLogTotal">0分</strong>
+              </div>
+              <div class="stat-box">
+                <span>達成率</span>
+                <strong id="reviewRate">0%</strong>
+              </div>
+            </div>
+            <p id="reviewMessage" class="muted-text">まだまだ伸びます。</p>
+          </div>
+        </section>
+
+        <section id="page-settings" class="page" data-page-section hidden>
+          <div class="panel">
+            <h2>設定</h2>
+            <div class="setting-list">
+              <label class="setting-row"><span>今日</span><input type="checkbox" data-bottom-item="today" checked /></label>
+              <label class="setting-row"><span>日程</span><input type="checkbox" data-bottom-item="schedule" checked /></label>
+              <label class="setting-row"><span>勉強タイマー</span><input type="checkbox" data-bottom-item="timer" checked /></label>
+              <label class="setting-row"><span>記録</span><input type="checkbox" data-bottom-item="records" checked /></label>
+              <label class="setting-row"><span>目標</span><input type="checkbox" data-bottom-item="goals" /></label>
+              <label class="setting-row"><span>ロケット</span><input type="checkbox" data-bottom-item="rocket" /></label>
+              <label class="setting-row"><span>振り返り</span><input type="checkbox" data-bottom-item="review" checked /></label>
+              <label class="setting-row"><span>設定</span><input type="checkbox" data-bottom-item="settings" checked /></label>
             </div>
           </div>
         </section>
       </main>
+
+      <nav id="bottomNav" class="bottom-nav" aria-label="下部メニュー"></nav>
     </div>
 
     <script src="./js/app.js" defer></script>
